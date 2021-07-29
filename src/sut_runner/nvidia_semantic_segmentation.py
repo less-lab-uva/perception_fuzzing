@@ -8,36 +8,6 @@ import traceback
 from src.sut_runner.sut_runner import SUTRunner
 
 
-def copy_output(folder, temp_name):
-    if '.yml' in temp_name:
-        temp_file_name = temp_name[temp_name.rfind('/') + 1:temp_name.rfind('.yml')]
-    else:
-        temp_file_name = temp_name
-    if folder[-1] != '/':
-        folder += '/'
-    base_folder = NVIDIASemSeg.SEMANTIC_SEG_HOME + '/logs/' + temp_file_name + '/'
-    # print(base_folder)
-    random_folder = base_folder + '/' + os.listdir(base_folder)[0]
-    images_folder = random_folder + '/best_images/'
-    # print(random_folder)
-    # print(images_folder)
-    for file in os.listdir(images_folder):
-        if '_prediction.png' not in file:
-            continue
-        # the prediction is of the form NAME_prediction.png
-        file_name = file[:file.rfind('.')]
-        # predicted_file = images_folder + file_name + '_prediction.png'
-        predicted_file = images_folder + file
-        orig_folder = folder + file_name + SUTRunner.POST_FIX
-        try:
-            copyfile(predicted_file, orig_folder)
-        except:
-            traceback.print_exc()
-            exit()
-            print('could not copy %s' % predicted_file)
-    rmtree(random_folder)
-
-
 class NVIDIASemSeg(SUTRunner):
     base_string = '''
     # Run Evaluation and Dump Images on Cityscapes with a pretrained model
@@ -64,12 +34,13 @@ class NVIDIASemSeg(SUTRunner):
     ]
     '''
 
-    SEMANTIC_SEG_HOME = '/home/adwiii/git/nvidia/semantic-segmentation'
-
-    base_command = 'nvidia-docker run --ipc=host -v "%s:%s" --user "$(id -u):$(id -g)" nvidia-semantic-segmentation bash -c "cd %s && python -m runx.runx YML_FILE -i"' % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, SEMANTIC_SEG_HOME)
-
-    def __init__(self):
+    def __init__(self, semseg_home):
         super().__init__("nvidia-semantic-segmentation")
+        self.SEMANTIC_SEG_HOME = semseg_home
+
+        self.base_command = 'nvidia-docker run --ipc=host -v "%s:%s" --user "$(id -u):$(id -g)" ' \
+                            'nvidia-semantic-segmentation bash -c "cd %s && python -m runx.runx YML_FILE -i"' \
+                            % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, self.SEMANTIC_SEG_HOME)
 
     def _run_semantic_seg(self, folder, dest_folder):
         runx_string = NVIDIASemSeg.base_string.replace('IMAGE_FOLDER', folder)
@@ -78,7 +49,7 @@ class NVIDIASemSeg(SUTRunner):
             # print(temp.name)
             temp.write(str.encode(runx_string))  # tempfile needs bytes for some reason
             temp.flush()
-            command = NVIDIASemSeg.base_command.replace('YML_FILE', temp.name)
+            command = self.base_command.replace('YML_FILE', temp.name)
             # print(command)
             process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
             for line in iter(process.stdout.readline, b''):  # replace '' with b'' for Python 3
@@ -86,10 +57,39 @@ class NVIDIASemSeg(SUTRunner):
             process.wait()
             # output files are in
             # SEMANTIC_SEG_HOME/logs/temp.name/(only one folder_to_check, but name is random)/best_images
-            copy_output(dest_folder, temp.name)
+            self.copy_output(dest_folder, temp.name)
+
+    def copy_output(self, folder, temp_name):
+        if '.yml' in temp_name:
+            temp_file_name = temp_name[temp_name.rfind('/') + 1:temp_name.rfind('.yml')]
+        else:
+            temp_file_name = temp_name
+        if folder[-1] != '/':
+            folder += '/'
+        base_folder = self.SEMANTIC_SEG_HOME + '/logs/' + temp_file_name + '/'
+        # print(base_folder)
+        random_folder = base_folder + '/' + os.listdir(base_folder)[0]
+        images_folder = random_folder + '/best_images/'
+        # print(random_folder)
+        # print(images_folder)
+        for file in os.listdir(images_folder):
+            if '_prediction.png' not in file:
+                continue
+            # the prediction is of the form NAME_prediction.png
+            file_name = file[:file.rfind('.')]
+            # predicted_file = images_folder + file_name + '_prediction.png'
+            predicted_file = images_folder + file
+            orig_folder = folder + file_name + SUTRunner.POST_FIX
+            try:
+                copyfile(predicted_file, orig_folder)
+            except:
+                traceback.print_exc()
+                exit()
+        rmtree(random_folder)
 
 
 if __name__ == '__main__':
+    NVIDIASemSeg('/home/adwiii/git/nvidia/semantic-segmentation').run_semantic_seg('/home/adwiii/git/perception_fuzzing/src/images/add_car_check_perspective', SUTRunner.TEMP_DIR + '/nvidiasemseg_out')
     # run_semantic_seg('/home/adwiii/Downloads/Ch2_002/output/center', '/home/adwiii/Downloads/Ch2_002/output/center_semantic')
     copy_output('/home/adwiii/Downloads/Ch2_002/output/center_semantic', 'tmp2c56t94d')
 

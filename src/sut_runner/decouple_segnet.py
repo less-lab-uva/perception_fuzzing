@@ -15,22 +15,26 @@ def copy_output(dest_folder, temp_name):
 
 
 class DecoupleSegNet(SUTRunner):
-    DECOUPLE_SEGNET_HOME = '/home/adwiii/git/DecoupleSegNets'
-    SNAPSHOT_PATH = DECOUPLE_SEGNET_HOME + '/checkpoints/GFFNet_wider_resnet.pth'
 
-    base_command = 'nvidia-docker run --ipc=host -v "%s:%s" --user "$(id -u):$(id -g)" ' \
-                   'decouple-seg-nets-semantic-segmentation bash -c "cd %s && python demo/demo_folder_decouple.py ' \
-                   '--demo_folder INPUT_DIR --snapshot %s --save_dir OUTPUT_DIR ' \
-                   '--arch network.gffnets.DeepWV3PlusGFFNet --color-mask-only"' \
-                   % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, DECOUPLE_SEGNET_HOME, SNAPSHOT_PATH)
-
-    def __init__(self):
+    def __init__(self, decouple_segnet_home, snapshot_path=None):
         super().__init__('decouple_segnet')
+        self.DECOUPLE_SEGNET_HOME = decouple_segnet_home
+        if snapshot_path is None:
+            self.SNAPSHOT_PATH = self.DECOUPLE_SEGNET_HOME + '/checkpoints/GFFNet_wider_resnet.pth'
+        else:
+            self.SNAPSHOT_PATH = snapshot_path
+
+        self.base_command = 'nvidia-docker run --ipc=host -v "%s:%s" --user "$(id -u):$(id -g)" ' \
+                            'decouple-seg-nets-semantic-segmentation bash -c "cd %s && ' \
+                            'python demo/demo_folder_decouple.py --demo_folder INPUT_DIR ' \
+                            '--snapshot %s --save_dir OUTPUT_DIR ' \
+                            '--arch network.gffnets.DeepWV3PlusGFFNet --color-mask-only"' \
+                            % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, self.DECOUPLE_SEGNET_HOME, self.SNAPSHOT_PATH)
 
     def _run_semantic_seg(self, folder, dest_folder):
         # temp dir will be automatically cleaned up on exit of the with statement
         with tempfile.TemporaryDirectory(dir=SUTRunner.TEMP_DIR) as temp_folder:
-            command = DecoupleSegNet.base_command.replace('INPUT_DIR', folder).replace('OUTPUT_DIR', temp_folder)
+            command = self.base_command.replace('INPUT_DIR', folder).replace('OUTPUT_DIR', temp_folder)
             process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
             for line in iter(process.stdout.readline, b''):  # replace '' with b'' for Python 3
                 print(line.decode())
@@ -39,4 +43,4 @@ class DecoupleSegNet(SUTRunner):
 
 
 if __name__ == '__main__':
-    DecoupleSegNet().run_semantic_seg('/home/adwiii/git/perception_fuzzing/src/images/add_car_check_perspective', SUTRunner.TEMP_DIR + '/decouple_segnet_out')
+    DecoupleSegNet('/home/adwiii/git/DecoupleSegNets').run_semantic_seg('/home/adwiii/git/perception_fuzzing/src/images/add_car_check_perspective', SUTRunner.TEMP_DIR + '/decouple_segnet_out')

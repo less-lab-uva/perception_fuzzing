@@ -15,18 +15,21 @@ def copy_output(dest_folder, temp_name):
 
 
 class EfficientPS(SUTRunner):
-    EPS_HOME = '/home/adwiii/git/EfficientPS'
-    SNAPSHOT_PATH = EPS_HOME + '/checkpoints/efficientPS_cityscapes/model/model.pth '
 
-    base_command = 'nvidia-docker run --ipc=host -v "%s:%s" efficientps-semantic-segmentation ' \
-                   '"pip3 install git+https://github.com/mapillary/inplace_abn.git && ' \
-                   'cd %s/efficientNet && python setup.py develop && cd .. && python setup.py develop && ' \
-                   'python tools/cityscapes_save_predictions.py ./configs/efficientPS_singlegpu_sample.py ' \
-                   '%s INPUT_DIR OUTPUT_DIR && chown -R $(id -u):$(id -g) OUTPUT_DIR"'\
-                   % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, EPS_HOME, SNAPSHOT_PATH)
-
-    def __init__(self):
+    def __init__(self, eps_home, snapshot_path=None):
         super().__init__('efficientps')
+        self.EPS_HOME = eps_home
+        if snapshot_path is None:
+            self.SNAPSHOT_PATH = self.EPS_HOME + '/checkpoints/efficientPS_cityscapes/model/model.pth'
+        else:
+            self.SNAPSHOT_PATH = snapshot_path
+
+        self.base_command = 'nvidia-docker run --ipc=host -v "%s:%s" efficientps-semantic-segmentation ' \
+                            '"pip3 install git+https://github.com/mapillary/inplace_abn.git && ' \
+                            'cd %s/efficientNet && python setup.py develop && cd .. && python setup.py develop && ' \
+                            'python tools/cityscapes_save_predictions.py ./configs/efficientPS_singlegpu_sample.py ' \
+                            '%s INPUT_DIR OUTPUT_DIR && chown -R $(id -u):$(id -g) OUTPUT_DIR"' \
+                            % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, self.EPS_HOME, self.SNAPSHOT_PATH)
 
     def _run_semantic_seg(self, folder, dest_folder):
         # temp dir will be automatically cleaned up on exit of the with statement
@@ -44,7 +47,7 @@ class EfficientPS(SUTRunner):
             symlink = input_folder + '/' + str(uuid.uuid4())
             os.symlink(folder, symlink)
             with tempfile.TemporaryDirectory(dir=SUTRunner.TEMP_DIR) as temp_folder:
-                command = EfficientPS.base_command.replace('INPUT_DIR', input_folder).replace('OUTPUT_DIR', temp_folder)
+                command = self.base_command.replace('INPUT_DIR', input_folder).replace('OUTPUT_DIR', temp_folder)
                 process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
                 for line in iter(process.stdout.readline, b''):  # replace '' with b'' for Python 3
                     print(line.decode())
@@ -54,4 +57,4 @@ class EfficientPS(SUTRunner):
 
 
 if __name__ == '__main__':
-    EfficientPS().run_semantic_seg('/home/adwiii/git/perception_fuzzing/src/images/add_car_check_perspective', SUTRunner.TEMP_DIR + '/eps_out')
+    EfficientPS('/home/adwiii/git/EfficientPS').run_semantic_seg('/home/adwiii/git/perception_fuzzing/src/images/add_car_check_perspective', SUTRunner.TEMP_DIR + '/eps_out')
