@@ -31,7 +31,7 @@ class EfficientPS(SUTRunner):
                             '%s INPUT_DIR OUTPUT_DIR && chown -R $(id -u):$(id -g) OUTPUT_DIR"' \
                             % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, self.EPS_HOME, self.SNAPSHOT_PATH)
 
-    def _run_semantic_seg(self, folder, dest_folder):
+    def _run_semantic_seg(self, folder, dest_folder, verbose=False):
         # temp dir will be automatically cleaned up on exit of the with statement
         with tempfile.TemporaryDirectory(dir=SUTRunner.TEMP_DIR) as input_folder:
             # EPS expects the folder structure to be of the form:
@@ -48,10 +48,7 @@ class EfficientPS(SUTRunner):
             os.symlink(folder, symlink)
             with tempfile.TemporaryDirectory(dir=SUTRunner.TEMP_DIR) as temp_folder:
                 command = self.base_command.replace('INPUT_DIR', input_folder).replace('OUTPUT_DIR', temp_folder)
-                process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
-                for line in iter(process.stdout.readline, b''):  # replace '' with b'' for Python 3
-                    print(line.decode())
-                process.wait()
+                SUTRunner._run_docker(command, verbose)
                 copy_output(dest_folder, temp_folder)
                 os.unlink(symlink)
 

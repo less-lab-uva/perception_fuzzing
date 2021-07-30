@@ -39,7 +39,7 @@ class HRNet(SUTRunner):
                             'TEST.MODEL_FILE %s TEST.FLIP_TEST False"' \
                             % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, self.HRNet_HOME, self.SNAPSHOT_PATH)
 
-    def _run_semantic_seg(self, folder, dest_folder):
+    def _run_semantic_seg(self, folder, dest_folder, verbose=False):
         # temp dir will be automatically cleaned up on exit of the with statement
         with tempfile.TemporaryDirectory(dir=self.INPUT_BASE_PATH) as temp_input_folder:
             temp_input_folder_name = str(temp_input_folder)
@@ -59,10 +59,7 @@ class HRNet(SUTRunner):
                     folder_name = folder_name[folder_name.rfind('/')+1:]
                     command = self.base_command.replace('INPUT_LIST',
                                                          input_list).replace('OUTPUT_DIR_TO_REPLACE', folder_name)
-                    process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
-                    for line in iter(process.stdout.readline, b''):  # replace '' with b'' for Python 3
-                        print(line.decode())
-                    process.wait()
+                    SUTRunner._run_docker(command, verbose)
                     copy_output(dest_folder, str(temp_folder))
 
 

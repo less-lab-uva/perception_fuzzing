@@ -43,16 +43,18 @@ class Image:
 
 
 class MutationFolder:
-    def __init__(self, folder):
-        self.folder = folder
-        if self.folder[-1] != '/':
-            self.folder += '/'
-        if not os.path.exists(self.folder):
-            os.mkdir(self.folder)
-        self.pred_mutations_folder = self.folder[:-1] + '_pred_mutations/'
-        if not os.path.exists(self.pred_mutations_folder):
-            os.mkdir(self.pred_mutations_folder)
+    def __init__(self, base_folder):
+        if base_folder[-1] != '/':
+            base_folder += '/'
+        self.base_folder = base_folder
+        self.folder = base_folder + 'mutations/'
+        os.makedirs(self.folder, exist_ok=True)
+        self.pred_mutations_folder = base_folder + 'pred_mutations/'
+        os.makedirs(self.pred_mutations_folder, exist_ok=True)
         self.mutation_map = {}
+
+    def get_sut_folder(self, sut_name: str):
+        return '%s%s/' % (self.base_folder, sut_name)
 
     def add_mutation(self, mutation):
         self.mutation_map[mutation.name] = mutation
@@ -439,7 +441,6 @@ class Mutation:
         if pred_mutations_folder is not None and self.mutate_prediction is not None:
             self.mutate_prediction.image_file = pred_mutations_folder + self.name + '_mutation_prediction.png'
 
-
     def save_images(self):
         self.orig_image.save_image()
         self.edit_image.save_image()
@@ -512,8 +513,6 @@ class CityscapesMutator:
                         self.label_mapping[label].append(city_poly)
                         self.file_mapping[file].append(city_poly)
                         self.poly_id_mapping[poly_id] = city_poly
-        # for label in self.label_mapping:
-        #     print(label, len(self.label_mapping[label]))
 
     def get_ego_vehicle(self, file):
         return self.get_polys_for_image(file, ['ego vehicle'])
@@ -577,10 +576,6 @@ class CityscapesMutator:
                     continue
                 count -= 1
                 overlap = cv2.bitwise_and(other_polys, other_polys, mask=orig_car_poly)
-                # cv2.imshow('orig poly', orig_car_poly)
-                # cv2.imshow('other_polys', other_polys)
-                # cv2.imshow('overlap', overlap)
-                # cv2.waitKey()
                 if np.count_nonzero(overlap) > 0:
                     # as a precaution, don't use cars that are occluded
                     continue
@@ -599,12 +594,6 @@ class CityscapesMutator:
                         # if they are the same then it is more likely that the images can be combined
                         car_vanishing_point = get_vanishing_point(random_car_image)
                         if car_vanishing_point == road_vanishing_point:
-                            print('found consistent vp')
-                            rand = random.randint(0, 10000)
-                            cv2.imwrite('/home/adwiii/git/vanishing-point-detection/pictures/input/' + str(rand) + 'road.png', road_img)
-                            cv2.imwrite(
-                                '/home/adwiii/git/vanishing-point-detection/pictures/input/' + str(rand) + 'car.png',
-                                random_car_image)
                             found = True
                         else:
                             # if road_vanishing_point is None:

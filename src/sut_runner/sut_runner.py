@@ -1,4 +1,5 @@
 import os
+import subprocess
 
 
 def normalize_folders(folder, dest_folder=None):
@@ -23,11 +24,21 @@ class SUTRunner:
     def __init__(self, sut_name):
         self.name = sut_name
 
-    def _run_semantic_seg(self, folder, dest_folder):
+    def _run_semantic_seg(self, folder, dest_folder, verbose=False):
         """Run the SUT on the specified input folder, then copy the results to the dest folder"""
         pass
 
     def run_semantic_seg(self, folder, dest_folder=None):
         folder, dest_folder = normalize_folders(folder, dest_folder)
         self._run_semantic_seg(folder, dest_folder)
+
+    @staticmethod
+    def _run_docker(command, verbose=False):
+        if verbose:
+            process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
+            for line in iter(process.stdout.readline, b''):  # replace '' with b'' for Python 3
+                print(line.decode())
+        else:
+            process = subprocess.Popen(command, shell=True)
+        process.wait()
 

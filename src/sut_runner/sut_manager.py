@@ -10,4 +10,5 @@ class SUTManager:
 
     def run_suts(self, mutation_folder: MutationFolder):
         for sut in self.suts:
+            print('---- Running SUT %s ----' % sut.name)
             sut.run_semantic_seg(mutation_folder.folder, mutation_folder.get_sut_folder(sut.name))

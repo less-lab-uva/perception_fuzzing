@@ -3,13 +3,141 @@ from skimage.metrics import structural_similarity
 import traceback
 from multiprocessing import Pool
 from image_mutator import *
+from src.sut_runner.decouple_segnet import DecoupleSegNet
+from src.sut_runner.efficientps import EfficientPS
+from src.sut_runner.hrnet import HRNet
+from src.sut_runner.nvidia_sdcnet import NVIDIASDCNet
+from src.sut_runner.nvidia_semantic_segmentation import NVIDIASemSeg
+from src.sut_runner.sut_manager import SUTManager
 
 sys.path.append('/home/adwiii/git/pytorch-DAVE2/src/torchdave/')
 from dave_model import *
 
+
+def create_images(folder: MutationFolder, count, start_num):
+    """Generate the specified number of mutations"""
+    # TODO pass what mutation to do as argument
+    i = start_num
+    mutations = []
+    while i < start_num + count:
+        try:
+            # mutation = nuim_mutator.change_car_color()
+            # mutation = cityscapes_mutator.change_instance_color('car')
+            # mutation = cityscapes_mutator.change_instance_color('person')
+            mutation = cityscapes_mutator.add_instance('car', rotation=0)
+            # mutation = nuim_mutator.random_obj_to_random_image()
+            if mutation is not None:
+                mutations.append(mutation)
+                mutation.update_file_names(folder.folder, folder.pred_mutations_folder)
+                mutation.save_images()
+            else:
+                i -= 1  # don't advance if we didn't get a new mutation
+        except Exception as e:
+            traceback.print_exc(e)
+            pass
+        i += 1
+    return 0
+
+
+def create_fuzz_images(mutation_folder: MutationFolder, count, pool_count=1):
+    """Generate mutated images using a thread pool for increased speed"""
+    count_per = int(count / pool_count)
+    results = []
+    orig_count = count
+    if pool_count == 1 or True:
+        create_images(mutation_folder, count, 0)
+    else:
+        # TODO below is currently broken due to pickling issues, hence the "or True" above
+        with Pool(pool_count) as pool:
+            while count > 0:
+                res = pool.apply_async(create_images, (mutation_folder, min(count, count_per), orig_count - count))
+                results.append(res)
+                count -= count_per
+            for res in results:  # wait for all images to generate
+                res.get()
+
+
 class Tester:
     def __init__(self):
-        pass
+        self.sut_list = [
+            NVIDIASemSeg('/home/adwiii/git/nvidia/semantic-segmentation'),
+            NVIDIASDCNet('/home/adwiii/git/nvidia/sdcnet/semantic-segmentation',
+                         '/home/adwiii/git/nvidia/large_assets/sdcnet_weights/cityscapes_best.pth'),
+            DecoupleSegNet('/home/adwiii/git/DecoupleSegNets'),
+            EfficientPS('/home/adwiii/git/EfficientPS'),
+            HRNet('/home/adwiii/git/HRNet-Semantic-Segmentation')
+        ]
+        self.sut_manager = SUTManager(self.sut_list)
+        self.steering_model = SteeringModel()
+        self.steering_model.load_state_dict()
+
+    def execute_tests(self, mutation_folder: MutationFolder, num_tests=100):
+        # create_fuzz_images(mutation_folder, num_tests)
+        # # TODO add discriminator here or move it into the create_fuzz_images call
+        # self.sut_manager.run_suts(mutation_folder)
+        sut_steering_diffs = self.compute_steering_differences(mutation_folder)
+        print(sut_steering_diffs)
+        self.visualize_steering_diffs(sut_steering_diffs)
+
+    def visualize_steering_diffs(self, sut_steering_diffs):
+        bin_count = max([len(sut_steering_diffs[sut.name].values()) for sut in self.sut_list]) // 10
+        other_bins = None
+        for sut in self.sut_list:
+            steering_diffs = sut_steering_diffs[sut.name]
+            if other_bins is None:
+                _, other_bins, _ = plt.hist(steering_diffs.values(), bins=bin_count, alpha=0.5, label=sut.name,
+                                         histtype='step')
+            else:
+                plt.hist(steering_diffs.values(), bins=other_bins, alpha=0.5, label=sut.name,
+                         histtype='step')
+        plt.xlabel("Steering Angle Differences (deg)")
+        plt.ylabel("Count")
+        plt.title("Steering Angle Differences Across SUTs")
+        plt.legend(loc='upper right')
+        plt.show()
+
+    def compute_steering_differences(self, mutation_folder: MutationFolder, batch_size=100):
+        sut_steering_diffs = {}
+        for sut in self.sut_list:
+            steering_diffs = {}
+            folder = mutation_folder.get_sut_folder(sut.name)
+            images_to_process = []
+            files = []
+            for file in glob.glob(folder + '*edit_prediction.png'):
+                file_name = file[file.rfind('/') + 1:]
+                orig_pred_image_file = file.replace('edit_prediction', 'orig_prediction')
+                orig_pred_image = Image(image_file=orig_pred_image_file, read_on_load=True)
+                short_file = file_name[file_name.rfind('/') + 1:]
+                orig_pred_mutation_file = mutation_folder.pred_mutations_folder + short_file.replace(
+                    'edit_prediction', 'mutation_prediction')
+                if os.path.exists(orig_pred_mutation_file):
+                    orig_pred_mutation_image = Image(image_file=orig_pred_mutation_file, read_on_load=True)
+                    pred_mutation_mask = np.copy(orig_pred_mutation_image.image)
+                    # convert to black and white
+                    pred_mutation_mask[np.where((pred_mutation_mask != [0, 0, 0]).any(axis=2))] = [255, 255, 255]
+                    pred_mutation_mask = cv2.cvtColor(pred_mutation_mask, cv2.COLOR_BGR2GRAY)
+                    _, pred_mutation_mask = cv2.threshold(pred_mutation_mask, 40, 255, cv2.THRESH_BINARY)
+                    inv_mask = cv2.bitwise_not(pred_mutation_mask)
+                    orig_pred_image.image = cv2.bitwise_and(orig_pred_image.image, orig_pred_image.image,
+                                                            mask=inv_mask)
+                    orig_pred_image.image = cv2.add(orig_pred_image.image, orig_pred_mutation_image.image)
+                edit_pred_image = Image(image_file=file, read_on_load=True)
+                images_to_process.append(orig_pred_image.image)
+                images_to_process.append(edit_pred_image.image)
+                files.append(file_name)
+            remaining = len(images_to_process)
+            current = 0
+            steering_angles = []  # in my testing the GPU would error out if the batch_size was too large
+            while remaining > 0:
+                steering_angles.extend(self.steering_model.evaluate(
+                    images_to_process[current:current+min(remaining, batch_size)]))
+                remaining -= batch_size
+                current += batch_size
+            for i in range(0, len(steering_angles), 2):
+                steering_diff = abs(steering_angles[i] - steering_angles[i+1]) * 180 / np.pi
+                steering_diffs[files[i // 2]] = steering_diff
+            sut_steering_diffs[sut.name] = steering_diffs
+        return sut_steering_diffs
 
     def compute_differences(self, truth, predicted, ignore_black=False):
         # https://stackoverflow.com/questions/56183201/detect-and-visualize-differences-between-two-images-with-opencv-python
@@ -114,45 +242,6 @@ nuim_mutator = NuScenesMutator(DATA_ROOT, 'v1.0-mini')
 CITYSCAPES_DATA_ROOT = '/home/adwiii/data/cityscapes'
 cityscapes_mutator = CityscapesMutator(CITYSCAPES_DATA_ROOT)
 
-def create_images(folder, count, start_num):
-    i = start_num
-    mutations = []
-    while i < start_num + count:
-        try:
-            # mutation = nuim_mutator.change_car_color()
-            # mutation = cityscapes_mutator.change_instance_color('car')
-            # mutation = cityscapes_mutator.change_instance_color('person')
-            mutation = cityscapes_mutator.add_instance('car', rotation=random.randint(1, 3)*90)
-            # mutation = nuim_mutator.random_obj_to_random_image()
-            if mutation is not None:
-                mutations.append(mutation)
-                mutation.update_file_names(folder.folder, folder.pred_mutations_folder)
-                mutation.save_images()
-            else:
-                i -= 1  # don't advance if we didn't get a new mutation
-        except Exception as e:
-            traceback.print_exc(e)
-            pass
-        i += 1
-    return 0
-
-
-def create_fuzz_images(mutation_folder, count, pool_count=16):
-    count_per = int(count / pool_count)
-    results = []
-    orig_count = count
-    if pool_count == 1:
-        create_images(mutation_folder, count, 0)
-    else:
-        # TODO below is currently broken due to pickling issues
-        with Pool(pool_count) as pool:
-            while count > 0:
-                res = pool.apply_async(create_images, (mutation_folder, min(count, count_per), orig_count - count))
-                results.append(res)
-                count -= count_per
-            for res in results:  # wait for all images to generate
-                res.get()
-
 
 def print_distances(polys: List[SemanticPolygon]):
     i = 0
@@ -167,6 +256,11 @@ def print_distances(polys: List[SemanticPolygon]):
 
 KEY_CLASSES = ['car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle', 'person', 'rider']
 if __name__ == '__main__':
+    folder = '/home/adwiii/git/perception_fuzzing/src/images/all_sut_test_add_car/'
+    mutation_folder = MutationFolder(folder)
+    tester = Tester()
+    tester.execute_tests(mutation_folder)
+    exit()
     steering_models = SteeringModel()
     steering_models.load_state_dict()
     # folder = '/home/adwiii/git/perception_fuzzing/src/images/cityscapes_good_gt_mutations_10k/'
