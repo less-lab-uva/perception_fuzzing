@@ -49,8 +49,8 @@ class MutationFolder:
         self.base_folder = base_folder
         self.folder = base_folder + 'mutations/'
         os.makedirs(self.folder, exist_ok=True)
-        self.pred_mutations_folder = base_folder + 'pred_mutations/'
-        os.makedirs(self.pred_mutations_folder, exist_ok=True)
+        self.mutations_gt_folder = base_folder + 'mutations_gt/'
+        os.makedirs(self.mutations_gt_folder, exist_ok=True)
         self.mutation_map = {}
 
     def get_sut_folder(self, sut_name: str):
@@ -412,40 +412,28 @@ class SemanticDifferences:
 
 
 class Mutation:
-    def __init__(self, orig_image: Image, edit_image: Image, mutate_prediction=None, name=None):
+    def __init__(self, orig_image: Image, edit_image: Image, mutation_gt: Image, name=None):
         self.name = str(uuid.uuid4())
         if name is not None:
             self.name += '_' + name
         self.orig_image = orig_image
-        self.orig_prediction = None
-        self.orig_prediction_mutated = None
         self.edit_image = edit_image
-        self.edit_prediction = None
-        self.mutate_prediction = mutate_prediction
+        self.mutation_gt = mutation_gt
 
-    def update_orig_prediction(self, orig_prediction):
-        return  # below implementation is outdated and incorrect for current setup
-        self.orig_prediction = orig_prediction
-        self.orig_prediction_mutated = Image(self.mutate_prediction(orig_prediction.image), orig_prediction.image_file.replace('_orig_prediction.png', '_orig_prediction_mutated.png'))\
-            if self.mutate_prediction is not None else Image(orig_prediction.image)  # default to no-op mutation if no func provided
-        self.orig_prediction_mutated.save_image()
-
-    def update_file_names(self, folder, pred_mutations_folder=None):
+    def update_file_names(self, mutation_folder: MutationFolder):
         for image, postfix in [(self.orig_image, '_orig.png'),
-                               (self.edit_image, '_edit.png'),
-                               (self.orig_prediction, '_orig_prediction.png'),
-                               (self.orig_prediction_mutated, '_orig_prediction_mutated.png'),
-                               (self.edit_prediction, '_edit_prediction.png')]:
+                               (self.edit_image, '_edit.png')]:
             if image is not None:
-                image.image_file = folder + self.name + postfix
-        if pred_mutations_folder is not None and self.mutate_prediction is not None:
-            self.mutate_prediction.image_file = pred_mutations_folder + self.name + '_mutation_prediction.png'
+                image.image_file = mutation_folder.folder + self.name + postfix
+        if mutation_folder.mutations_gt_folder is not None and self.mutation_gt is not None:
+            self.mutation_gt.image_file = mutation_folder.mutations_gt_folder + self.name + '_mutation_gt.png'
 
-    def save_images(self):
-        self.orig_image.save_image()
+    def save_images(self, save_orig=False):
+        if save_orig:
+            self.orig_image.save_image()
         self.edit_image.save_image()
-        if self.mutate_prediction is not None:
-            self.mutate_prediction.save_image()
+        if self.mutation_gt is not None:
+            self.mutation_gt.save_image()
 
 
 class CityscapesGroundTruth:
@@ -610,10 +598,10 @@ class CityscapesMutator:
         lower_left = (mins[0], maxs[1])
         name = road_poly.json_file[road_poly.json_file.rfind('/') + 1:-21]
         img = self.mutate.add_object(random_car_image, instance_mask, road_img, lower_left, add_shadow=False, rotation=rotation)
-        mutation_prediction = np.zeros(road_img.shape)
+        mutation_gt = road_poly.get_gt_semantics_image()
         rgb = name2label[semantic_label].color
-        mutation_prediction = cv2.fillPoly(mutation_prediction, pts=[car_polygon], color=(rgb[2], rgb[1], rgb[0]))
-        mutation = Mutation(Image(road_img), Image(img), name=name, mutate_prediction=Image(mutation_prediction))
+        mutation_gt = cv2.fillPoly(mutation_gt, pts=[car_polygon], color=(rgb[2], rgb[1], rgb[0]))
+        mutation = Mutation(Image(road_img), Image(img), name=name, mutation_gt=Image(mutation_gt))
         return mutation
 
     def change_instance_color(self, semantic_label='car', poly_id=None):
@@ -642,7 +630,7 @@ class CityscapesMutator:
         # cv2.imshow('color', cv2.resize(img, (512, 288)))
         # cv2.waitKey()
         print('returning mutation')
-        mutation = Mutation(Image(random_car_image), Image(img), name=name)
+        mutation = Mutation(Image(random_car_image), Image(img), name=name, mutation_gt=Image(city_poly.get_gt_semantics_image()))
         return mutation
 
     def get_instance_mask(self, city_poly: CityscapesPolygon, filter_in_front=True, color=None, return_other_polys=False):
@@ -713,14 +701,13 @@ class NuScenesMutator:
         # cv2.imshow('added_car', added_car)
         # cv2.waitKey()
 
-        def mutate_pred(orig_prediction):
-            im = np.copy(orig_prediction)
-            all_car = np.copy(orig_prediction)
-            # TODO generalize to other data sets
-            total = max(all_car.shape[0], all_car.shape[1])
-            all_car = cv2.rectangle(all_car, (0, 0), (total, total), (142, 0, 0), -1)  # this is the color of car in cityscapes (in BGR here)
-            return self.mutate.add_object(all_car, instance_mask, im, car_loc)
-        mutation = Mutation(Image(img), Image(added_car), mutate_pred)
+        orig_prediction = self.gt_for_sample(random_road_sample)
+        im = np.copy(orig_prediction)
+        all_car = np.copy(orig_prediction)
+        total = max(all_car.shape[0], all_car.shape[1])
+        all_car = cv2.rectangle(all_car, (0, 0), (total, total), (142, 0, 0), -1)  # this is the color of car in cityscapes (in BGR here)
+        mutate_gt = self.mutate.add_object(all_car, instance_mask, im, car_loc)
+        mutation = Mutation(Image(img), Image(added_car), Image(mutate_gt))
         return mutation
 
     def change_car_color(self):
@@ -745,7 +732,7 @@ class NuScenesMutator:
         # cv2.imshow('orig', cv2.resize(random_car_isolated, (512, 288)))
         # cv2.imshow('color', cv2.resize(img, (512, 288)))
         # cv2.waitKey()
-        mutation = Mutation(Image(random_car_image), Image(img))
+        mutation = Mutation(Image(random_car_image), Image(img), Image(self.gt_for_sample(sample)))
         return mutation
 
     def sample_for_object(self, object_token, table='object_ann'):
@@ -768,6 +755,10 @@ class NuScenesMutator:
         file = self.data_root + '/' + sample_data['filename']
         img = cv2.imread(file)
         return img
+
+    def gt_for_sample(self, sample_token):
+        # TODO
+        return None
 
     def get_instances(self, sample_token, target_category):
         if not isinstance(target_category, list):

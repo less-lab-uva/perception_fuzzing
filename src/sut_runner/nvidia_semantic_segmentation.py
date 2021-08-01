@@ -67,11 +67,8 @@ class NVIDIASemSeg(SUTRunner):
         for file in os.listdir(images_folder):
             if '_prediction.png' not in file:
                 continue
-            # the prediction is of the form NAME_prediction.png
-            file_name = file[:file.rfind('.')]
-            # predicted_file = images_folder + file_name + '_prediction.png'
-            predicted_file = images_folder + file + '.png'
-            orig_folder = folder + file_name
+            predicted_file = images_folder + file
+            orig_folder = folder + file
             try:
                 copyfile(predicted_file, orig_folder)
             except:

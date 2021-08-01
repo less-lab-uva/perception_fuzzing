@@ -28,7 +28,7 @@ def create_images(folder: MutationFolder, count, start_num):
             # mutation = nuim_mutator.random_obj_to_random_image()
             if mutation is not None:
                 mutations.append(mutation)
-                mutation.update_file_names(folder.folder, folder.pred_mutations_folder)
+                mutation.update_file_names(folder)
                 mutation.save_images()
             else:
                 i -= 1  # don't advance if we didn't get a new mutation
@@ -72,9 +72,9 @@ class Tester:
         self.steering_model.load_state_dict()
 
     def execute_tests(self, mutation_folder: MutationFolder, num_tests=100):
-        # create_fuzz_images(mutation_folder, num_tests)
+        create_fuzz_images(mutation_folder, num_tests)
         # # TODO add discriminator here or move it into the create_fuzz_images call
-        # self.sut_manager.run_suts(mutation_folder)
+        self.sut_manager.run_suts(mutation_folder)
         sut_steering_diffs = self.compute_steering_differences(mutation_folder)
         print(sut_steering_diffs)
         self.visualize_steering_diffs(sut_steering_diffs)
@@ -105,24 +105,12 @@ class Tester:
             files = []
             for file in glob.glob(folder + '*edit_prediction.png'):
                 file_name = file[file.rfind('/') + 1:]
-                orig_pred_image_file = file.replace('edit_prediction', 'orig_prediction')
-                orig_pred_image = Image(image_file=orig_pred_image_file, read_on_load=True)
                 short_file = file_name[file_name.rfind('/') + 1:]
-                orig_pred_mutation_file = mutation_folder.pred_mutations_folder + short_file.replace(
-                    'edit_prediction', 'mutation_prediction')
-                if os.path.exists(orig_pred_mutation_file):
-                    orig_pred_mutation_image = Image(image_file=orig_pred_mutation_file, read_on_load=True)
-                    pred_mutation_mask = np.copy(orig_pred_mutation_image.image)
-                    # convert to black and white
-                    pred_mutation_mask[np.where((pred_mutation_mask != [0, 0, 0]).any(axis=2))] = [255, 255, 255]
-                    pred_mutation_mask = cv2.cvtColor(pred_mutation_mask, cv2.COLOR_BGR2GRAY)
-                    _, pred_mutation_mask = cv2.threshold(pred_mutation_mask, 40, 255, cv2.THRESH_BINARY)
-                    inv_mask = cv2.bitwise_not(pred_mutation_mask)
-                    orig_pred_image.image = cv2.bitwise_and(orig_pred_image.image, orig_pred_image.image,
-                                                            mask=inv_mask)
-                    orig_pred_image.image = cv2.add(orig_pred_image.image, orig_pred_mutation_image.image)
+                mutation_gt_file = mutation_folder.mutations_gt_folder +\
+                                   short_file.replace('edit_prediction.png', 'mutation_gt.png')
+                mutation_gt = Image(image_file=mutation_gt_file, read_on_load=True)
                 edit_pred_image = Image(image_file=file, read_on_load=True)
-                images_to_process.append(orig_pred_image.image)
+                images_to_process.append(mutation_gt.image)
                 images_to_process.append(edit_pred_image.image)
                 files.append(file_name)
             remaining = len(images_to_process)
@@ -256,7 +244,7 @@ def print_distances(polys: List[SemanticPolygon]):
 
 KEY_CLASSES = ['car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle', 'person', 'rider']
 if __name__ == '__main__':
-    folder = '/home/adwiii/git/perception_fuzzing/src/images/all_sut_test_add_car/'
+    folder = '/home/adwiii/git/perception_fuzzing/src/images/new_mutation_gt/'
     mutation_folder = MutationFolder(folder)
     tester = Tester()
     tester.execute_tests(mutation_folder)
