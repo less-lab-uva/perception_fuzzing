@@ -2,6 +2,8 @@ import glob
 import os
 from collections import defaultdict
 from typing import List, Dict, Any, Tuple, Optional
+
+import PIL.ImagePalette
 from nuimages import NuImages
 import cv2
 import matplotlib.pyplot as plt
@@ -15,13 +17,14 @@ from nuimages.utils.utils import annotation_name, mask_decode, get_font, name_to
 import tempfile  # used for ipc with deepfill
 import json
 from pathlib import Path
+from PIL import Image as PILImage
 
 from src.images.vanishing_point.vanishing_point_detection import get_vanishing_point
 
 current_file_path = Path(__file__)
 sys.path.append(str(current_file_path.parent.parent.absolute()) + '/cityscapesScripts')
 from cityscapesscripts.helpers.annotation import Annotation
-from cityscapesscripts.helpers.labels     import name2label
+from cityscapesscripts.helpers.labels     import name2label, trainId2label
 
 class Scene:
     def __init__(self):
@@ -29,6 +32,9 @@ class Scene:
 
 
 class Image:
+    _default_palette_rgb = [trainId2label[id].color if id in trainId2label else (0,0,0) for id in range(256)]
+    _default_palette = [val for rgbs in _default_palette_rgb for val in rgbs]
+
     def __init__(self, image=None, image_file: str = None, read_on_load=False):
         self.image = image
         self.image_file = image_file
@@ -37,6 +43,24 @@ class Image:
 
     def save_image(self):
         cv2.imwrite(self.image_file, self.image)
+
+    def save_paletted_image(self, palette=None):
+        if palette is None:
+            palette = Image._default_palette
+            rgb_palette = Image._default_palette_rgb
+        else:
+            rgb_palette = [(palette[i], palette[i + 1], palette[i + 2]) for i in range(0, len(palette), 3)]
+        rgb_palette = np.array(rgb_palette)
+
+        rgb_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
+        paletted_image = np.zeros(self.image.shape, dtype=np.uint8)
+        for i in reversed(range(len(rgb_palette))):
+            paletted_image[np.where((rgb_image == rgb_palette[i]).all(axis=2))] = [i, i, i]
+        paletted_image = cv2.cvtColor(paletted_image, cv2.COLOR_RGB2GRAY)
+
+        paletted = PILImage.fromarray(paletted_image.astype(np.uint8)).convert('P')
+        paletted.putpalette(palette)
+        paletted.save(self.image_file)
 
     def load_image(self):
         self.image = cv2.imread(self.image_file)
@@ -433,7 +457,7 @@ class Mutation:
             self.orig_image.save_image()
         self.edit_image.save_image()
         if self.mutation_gt is not None:
-            self.mutation_gt.save_image()
+            self.mutation_gt.save_paletted_image()
 
 
 class CityscapesGroundTruth:

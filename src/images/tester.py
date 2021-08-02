@@ -13,6 +13,11 @@ from src.sut_runner.sut_manager import SUTManager
 sys.path.append('/home/adwiii/git/pytorch-DAVE2/src/torchdave/')
 from dave_model import *
 
+current_file_path = Path(__file__)
+sys.path.append(str(current_file_path.parent.parent.absolute()) + '/cityscapesScripts')
+from cityscapesscripts.evaluation.evalPixelLevelSemanticLabeling import evaluateImgLists
+from cityscapesscripts.evaluation.evalPixelLevelSemanticLabeling import args as cityscapes_eval_args
+
 
 def create_images(folder: MutationFolder, count, start_num):
     """Generate the specified number of mutations"""
@@ -68,64 +73,47 @@ class Tester:
             HRNet('/home/adwiii/git/HRNet-Semantic-Segmentation')
         ]
         self.sut_manager = SUTManager(self.sut_list)
-        self.steering_model = SteeringModel()
-        self.steering_model.load_state_dict()
 
-    def execute_tests(self, mutation_folder: MutationFolder, num_tests=100):
+    def execute_tests(self, mutation_folder: MutationFolder, num_tests=10000):
         create_fuzz_images(mutation_folder, num_tests)
-        # # TODO add discriminator here or move it into the create_fuzz_images call
+        # TODO add discriminator here or move it into the create_fuzz_images call
         self.sut_manager.run_suts(mutation_folder)
-        sut_steering_diffs = self.compute_steering_differences(mutation_folder)
-        print(sut_steering_diffs)
-        self.visualize_steering_diffs(sut_steering_diffs)
+        self.compute_cityscapes_metrics(mutation_folder)
 
-    def visualize_steering_diffs(self, sut_steering_diffs):
-        bin_count = max([len(sut_steering_diffs[sut.name].values()) for sut in self.sut_list]) // 10
-        other_bins = None
+    def compute_cityscapes_metrics(self, mutation_folder: MutationFolder):
+        results = {}
         for sut in self.sut_list:
-            steering_diffs = sut_steering_diffs[sut.name]
-            if other_bins is None:
-                _, other_bins, _ = plt.hist(steering_diffs.values(), bins=bin_count, alpha=0.5, label=sut.name,
-                                         histtype='step')
-            else:
-                plt.hist(steering_diffs.values(), bins=other_bins, alpha=0.5, label=sut.name,
-                         histtype='step')
-        plt.xlabel("Steering Angle Differences (deg)")
-        plt.ylabel("Count")
-        plt.title("Steering Angle Differences Across SUTs")
-        plt.legend(loc='upper right')
-        plt.show()
-
-    def compute_steering_differences(self, mutation_folder: MutationFolder, batch_size=100):
-        sut_steering_diffs = {}
-        for sut in self.sut_list:
-            steering_diffs = {}
+            print('--- Evaluating %s ---' % sut.name)
+            pred_img_list = []
+            gt_img_list = []
             folder = mutation_folder.get_sut_folder(sut.name)
-            images_to_process = []
-            files = []
             for file in glob.glob(folder + '*edit_prediction.png'):
                 file_name = file[file.rfind('/') + 1:]
                 short_file = file_name[file_name.rfind('/') + 1:]
                 mutation_gt_file = mutation_folder.mutations_gt_folder +\
                                    short_file.replace('edit_prediction.png', 'mutation_gt.png')
-                mutation_gt = Image(image_file=mutation_gt_file, read_on_load=True)
-                edit_pred_image = Image(image_file=file, read_on_load=True)
-                images_to_process.append(mutation_gt.image)
-                images_to_process.append(edit_pred_image.image)
-                files.append(file_name)
-            remaining = len(images_to_process)
-            current = 0
-            steering_angles = []  # in my testing the GPU would error out if the batch_size was too large
-            while remaining > 0:
-                steering_angles.extend(self.steering_model.evaluate(
-                    images_to_process[current:current+min(remaining, batch_size)]))
-                remaining -= batch_size
-                current += batch_size
-            for i in range(0, len(steering_angles), 2):
-                steering_diff = abs(steering_angles[i] - steering_angles[i+1]) * 180 / np.pi
-                steering_diffs[files[i // 2]] = steering_diff
-            sut_steering_diffs[sut.name] = steering_diffs
-        return sut_steering_diffs
+                pred_img_list.append(file)
+                gt_img_list.append(mutation_gt_file)
+            results[sut.name] = evaluateImgLists(pred_img_list, gt_img_list, cityscapes_eval_args)
+        for sut in self.sut_list:
+            print('%s:' % sut.name, results[sut.name]['averageScoreClasses'])
+
+    def visualize_diffs(self, sut_diffs):
+        bin_count = max([len(sut_diffs[sut.name].values()) for sut in self.sut_list]) // 10
+        other_bins = None
+        for sut in self.sut_list:
+            diffs = sut_diffs[sut.name]
+            if other_bins is None:
+                _, other_bins, _ = plt.hist(diffs.values(), bins=bin_count, alpha=0.5, label=sut.name,
+                                         histtype='step')
+            else:
+                plt.hist(diffs.values(), bins=other_bins, alpha=0.5, label=sut.name,
+                         histtype='step')
+        plt.xlabel("SUT Differences")
+        plt.ylabel("Count")
+        plt.title("SUT Differences")
+        plt.legend(loc='upper right')
+        plt.show()
 
     def compute_differences(self, truth, predicted, ignore_black=False):
         # https://stackoverflow.com/questions/56183201/detect-and-visualize-differences-between-two-images-with-opencv-python
