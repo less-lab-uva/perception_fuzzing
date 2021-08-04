@@ -16,21 +16,16 @@ def hough_transform(img):
     kernel = np.ones((1, 1), np.uint8)
 
     opening = cv2.morphologyEx(gray, cv2.MORPH_OPEN, kernel)  # Open (erode, then dilate)
-    # cv2.imshow('opening', opening)
     edges = cv2.Canny(opening, 50, 150, apertureSize=3, L2gradient=False)  # Canny edge detection
-    # cv2.imshow('edges', edges)
     lines = cv2.HoughLines(edges, 1, np.pi / 180, 200)  # Hough line detection
 
     hough_lines = []
     # Lines are represented by rho, theta; converted to endpoint notation
     if lines is not None:
         for line in lines:
-            hough_lines.extend(list(starmap(endpoints, line)))
-    # for start_point, end_point in hough_lines:
-    #     img = cv2.line(img, start_point, end_point, (0,0,255), 5)
-    # cv2.imshow('hough lines ' + str(len(hough_lines)), img)
-    # cv2.waitKey()
-    return hough_lines
+            return list(starmap(endpoints, line))
+    else:
+        return []
 
 
 def endpoints(rho, theta):
@@ -49,7 +44,7 @@ def endpoints(rho, theta):
 # Random sampling of lines
 def sample_lines(lines, size):
     if size > len(lines):
-        size = len(lines)
+        return lines
     return random.sample(lines, size)
 
 
@@ -134,7 +129,7 @@ def find_vanishing_point(img, grid_size, intersections):
 def get_vanishing_point(img, num_cells=4):
     hough_lines = hough_transform(img)
     if hough_lines:
-        print('hough_line count', len(hough_lines))
+        # print('hough_line count', len(hough_lines))
         random_sample = sample_lines(hough_lines, 1000)
         intersections = find_intersections(random_sample)
         if intersections:

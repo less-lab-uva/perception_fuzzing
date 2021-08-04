@@ -245,19 +245,9 @@ class ImageSemantics:
             color_mask = cv2.blur(color_mask, (7, 7))
             pre_thresh = color_mask
             _, color_mask = cv2.threshold(color_mask, 40, 255, cv2.THRESH_BINARY)
-            # print(color_mask)
             contours, hierarchy = cv2.findContours(color_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)  # CHAIN_APPROX_SIMPLE simplifies series of points into lines, but this makes calculating the center, etc harder
             if len(contours) > 0:
                 hierarchy = hierarchy[0]  # for some reason it is wrapped as a 1-item array?
-                # img = cv2.bitwise_and(self.image, self.image, mask=color_mask)
-                # colors = [(255, 128, 0), (0,255,0),(0,0,255), (255, 0, 255), (255, 255, 0), (0,255,255)]
-                # print(len(contours), len(hierarchy[0]))
-                # # print(hierarchy[0])
-                # for index, contour in enumerate(contours):
-                #     img = cv2.drawContours(img, [contour], 0, colors[index % len(colors)], 1)
-                #     print(index, hierarchy[index], colors[index % len(colors)])
-                # cv2.imshow(semantic_id + str(len(contours)), img)
-                # cv2.waitKey()
                 hierarchy_id_to_sem_poly = {}
                 current_polys: List[SemanticPolygon] = []
                 # create SemanticPolygons for all parent polygons in the contour
@@ -284,33 +274,16 @@ class ImageSemantics:
                         if j == i:
                             j += 1
                             continue
-                        # print(i,j,len(current_polys))
                         min_dist = current_polys[i].min_distance(current_polys[j])
                         if min_dist <= max(ImageSemantics.MIN_DIST_TO_MERGE,
                                            ImageSemantics.MIN_DIST_TO_MERGE_FRAC *
                                            min(current_polys[i].max_dim, current_polys[j].max_dim)):
-                            # if semantic_id == 'car':
-                            #     print('%s <- %s' % (str(current_polys[i].uuid), str(current_polys[j].uuid)))
                             current_polys[i].add_addition(current_polys.pop(j))
-                            # print('merged', semantic_id)
                             j = 0  # we merged with one, so this one's size has changed. Start over
                         else:
                             # do not increment if we deleted one
                             j += 1
                     i += 1
-                # if semantic_id == 'car':
-                #     print('-----')
-                #     with_polys = cv2.cvtColor(color_mask, cv2.COLOR_GRAY2BGR)
-                #     colors = [(255, 128, 0), (0,255,0),(0,0,255), (255, 0, 255), (255, 255, 0), (0,255,255), (128, 128, 128)]
-                #     for ind, poly in enumerate(current_polys):
-                #         with_polys = cv2.drawContours(with_polys, poly.polygon_list, -1, colors[ind % len(colors)], thickness=3)
-                #         print(poly.uuid, poly.center, poly.effective_area, len(poly.additions), poly.max_dim)
-                #     i = random.randint(1, 1000)
-                #     cv2.imshow('not blurred %d' % i, unblurred)
-                #     cv2.imshow('blurred %d' % i, pre_thresh)
-                #     cv2.imshow('black and white %d' % i, color_mask)
-                #     cv2.imshow('with polys %d' % i, with_polys)
-                #     cv2.waitKey()
                 for poly in current_polys:
                     self.polygons.append(poly)
                     self.semantic_maps[semantic_id].append(poly)
@@ -561,8 +534,8 @@ class CityscapesMutator:
             road_mask = self.get_instance_mask(road_poly)
             if road_mask is None:
                 return None
-        print('loaded road', road_poly.poly_id)
-        print('road mask', road_mask.shape)
+        # print('loaded road', road_poly.poly_id)
+        # print('road mask', road_mask.shape)
         road_img = self.load_image(road_poly.json_file)
         road_vanishing_point = get_vanishing_point(road_img)
         if car_id is not None:
@@ -607,17 +580,19 @@ class CityscapesMutator:
                         car_vanishing_point = get_vanishing_point(random_car_image)
                         if car_vanishing_point == road_vanishing_point:
                             found = True
-                        else:
-                            # if road_vanishing_point is None:
-                            #     cv2.imshow('none road', road_img)
-                            #     cv2.waitKey()
-                            # if car_vanishing_point is None:
-                            #     cv2.imshow('none car', random_car_image)
-                            #     cv2.waitKey()
-                            print('found diff vp', road_vanishing_point, car_vanishing_point)
-            if found:
-                print('found good car')
-            else:
+                        # else:
+                        #     # if road_vanishing_point is None:
+                        #     #     cv2.imshow('none road', road_img)
+                        #     #     cv2.waitKey()
+                        #     # if car_vanishing_point is None:
+                        #     #     cv2.imshow('none car', random_car_image)
+                        #     #     cv2.waitKey()
+                        #     print('found diff vp', road_vanishing_point, car_vanishing_point)
+            # if found:
+            #     print('found good car')
+            # else:
+            #     return None
+            if not found:
                 return None
         lower_left = (mins[0], maxs[1])
         name = road_poly.json_file[road_poly.json_file.rfind('/') + 1:-21]
@@ -636,24 +611,24 @@ class CityscapesMutator:
         # random_car_image = cv2.drawContours(random_car_image, contours=[city_poly.polygon], contourIdx=-1,
         #                                      color=(255, 0, 0))
         # cv2.imshow('random_car_image', random_car_image)
-        print('loaded image')
-        print(city_poly.poly_id)
+        # print('loaded image')
+        # print(city_poly.poly_id)
         random_car_mask = self.get_instance_mask(city_poly)
         x, y, w, h = self.mutate.mask_bounding_rect(random_car_mask)
         if w < 50 or h < 50:
             return None
-        print('found bounding rect')
+        # print('found bounding rect')
         random_car_isolated = self.mutate.get_isolated(random_car_image, random_car_mask)
-        print('isolated car')
+        # print('isolated car')
         random_car_colored = self.mutate.change_car_color(random_car_isolated)
         # cv2.imshow('isolate', random_car_colored)
         # cv2.waitKey()
-        print('re-colored car')
+        # print('re-colored car')
         img = self.mutate.add_isolated_object(random_car_colored, random_car_image, (x, y+h), random_car_mask)
         # cv2.imshow('orig', cv2.resize(random_car_isolated, (512, 288)))
         # cv2.imshow('color', cv2.resize(img, (512, 288)))
         # cv2.waitKey()
-        print('returning mutation')
+        # print('returning mutation')
         mutation = Mutation(Image(random_car_image), Image(img), name=name, mutation_gt=Image(city_poly.get_gt_semantics_image()))
         return mutation
 
@@ -955,13 +930,11 @@ class ImageMutator:
         result = self.add_isolated_object(isolated_addition, dest, dest_loc, src_mask)
         # cv2.imshow('src', src)
         # cv2.imshow('added', result)
-        cv2.waitKey()
+        # cv2.waitKey()
 
         return result
 
-    def add_isolated_object(self, isolated_addition, dest, dest_loc, src_mask=None):
-        if src_mask is None:
-            raise NotImplementedError()  # TODO
+    def add_isolated_object(self, isolated_addition, dest, dest_loc, src_mask):
         src_mask = self.__normalize_mask(src_mask)
         height, width = dest.shape[:2]
         src_mask_x, src_mask_y, src_mask_width, src_mask_height = self.mask_bounding_rect(src_mask)
@@ -970,7 +943,9 @@ class ImageMutator:
         to_move_x = dest_loc[0] - src_mask_x
         translate_affine = self.__translate_affine(to_move_x, to_move_y)
         isolated_addition_dest = cv2.warpAffine(isolated_addition, translate_affine, (width, height))
-        remove_from_dest_mask_dest = cv2.warpAffine(remove_from_dest_mask_src, translate_affine, (width, height), borderValue=(255, 255, 255))  # bordervalue needs to be white since we want to fill with +mask
+        # bordervalue needs to be white since we want to fill with +mask
+        remove_from_dest_mask_dest = cv2.warpAffine(remove_from_dest_mask_src, translate_affine,
+                                                    (width, height), borderValue=(255, 255, 255))
         # print(dest.dtype, dest.shape)
         # print(remove_from_dest_mask_dest.dtype, remove_from_dest_mask_dest.shape)
         # cv2.imshow('dest', dest)
@@ -1016,9 +991,9 @@ class ImageMutator:
         road_values = road_values[np.where(instance_mask == 255)]
         car_values = car_values[np.where(instance_mask == 255)]
         # instance_mask = np.squeeze(np.stack((instance_mask,) * 3, axis=-1))
-        print('road vals', road_values.shape)
-        print('car vals', car_values.shape)
-        print('instance mask', instance_mask.shape)
+        # print('road vals', road_values.shape)
+        # print('car vals', car_values.shape)
+        # print('instance mask', instance_mask.shape)
         road_median_value = np.median(road_values)
         car_median_value = np.median(car_values)
         return abs(road_median_value - car_median_value) < 5
