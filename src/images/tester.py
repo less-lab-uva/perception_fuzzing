@@ -1,6 +1,7 @@
 import time
 from shutil import copyfile
 
+import cv2
 from skimage.metrics import structural_similarity
 
 import traceback
@@ -23,18 +24,14 @@ CITYSCAPES_DATA_ROOT = '/home/adwiii/data/cityscapes'
 cityscapes_mutator = CityscapesMutator(CITYSCAPES_DATA_ROOT)
 
 
-def create_images(folder: MutationFolder, count, start_num):
+def create_images(folder: MutationFolder, count, start_num, mutation_type: MutationType, arg_dict):
     """Generate the specified number of mutations"""
     # TODO pass what mutation to do as argument
     i = start_num
     mutations = []
     while i < start_num + count:
         try:
-            # mutation = nuim_mutator.change_car_color()
-            # mutation = cityscapes_mutator.change_instance_color('car')
-            # mutation = cityscapes_mutator.change_instance_color('person')
-            mutation = cityscapes_mutator.add_instance('car', rotation=0)
-            # mutation = nuim_mutator.random_obj_to_random_image()
+            mutation = cityscapes_mutator.apply_mutation(mutation_type, arg_dict)
             if mutation is not None:
                 mutations.append(mutation)
                 mutation.update_file_names(folder)
@@ -48,21 +45,26 @@ def create_images(folder: MutationFolder, count, start_num):
     return 0
 
 
-def create_fuzz_images(mutation_folder: MutationFolder, count, pool_count=10):
+def create_fuzz_images(mutation_folder: MutationFolder, count, mutation_type: MutationType, arg_dict, pool_count=10):
     """Generate mutated images using a thread pool for increased speed"""
     count_per = int(count / pool_count)
     results = []
     orig_count = count
     if pool_count == 1:
-        create_images(mutation_folder, count, 0)
+        create_images(mutation_folder, count, 0, mutation_type, arg_dict)
     else:
         with Pool(pool_count) as pool:
             while count > 0:
-                res = pool.apply_async(create_images, (mutation_folder, min(count, count_per), orig_count - count))
+                res = pool.apply_async(create_images, (mutation_folder, min(count, count_per), orig_count - count,
+                                                       mutation_type, arg_dict))
                 results.append(res)
                 count -= count_per
             for res in results:  # wait for all images to generate
                 res.get()
+
+
+def save_paletted_image(old_file_path, new_file_path):
+    Image(image=cv2.imread(old_file_path), image_file=new_file_path).save_paletted_image()
 
 
 class Tester:
@@ -77,17 +79,19 @@ class Tester:
         ]
         self.sut_manager = SUTManager(self.sut_list)
 
-    def execute_tests(self, mutation_folder: MutationFolder, num_tests=560, pool_count=28):
+    def execute_tests(self, mutation_folder: MutationFolder, mutation_type: MutationType, arg_dict,
+                      num_tests=560, pool_count=28):
         start_time = time.time()
-        create_fuzz_images(mutation_folder, num_tests, pool_count=pool_count)
+        create_fuzz_images(mutation_folder, num_tests, pool_count=pool_count,
+                           mutation_type=mutation_type, arg_dict=arg_dict)
         end_time = time.time()
         total_time = end_time - start_time
         time_per = total_time / num_tests
         print('Generated %d mutations in %0.2f s (%0.2f s/im, ~%0.2f cpus/im)' % (num_tests, total_time,
                                                                                   time_per, time_per * pool_count))
         # TODO add discriminator here or move it into the create_fuzz_images call
-        # self.sut_manager.run_suts(mutation_folder)
-        # self.compute_cityscapes_metrics(mutation_folder)
+        self.sut_manager.run_suts(mutation_folder)
+        self.compute_cityscapes_metrics(mutation_folder)
 
     def compute_cityscapes_metrics(self, mutation_folder: MutationFolder):
         results = {}
@@ -106,23 +110,28 @@ class Tester:
             results[sut.name] = evaluateImgLists(pred_img_list, gt_img_list, cityscapes_eval_args)
         with open(mutation_folder.base_folder + 'results.txt', 'w') as f:
             for sut in self.sut_list:
-                out = '%s: %0.2f' % (sut.name, results[sut.name]['averageScoreClasses'])
+                out = '%s: %0.4f' % (sut.name, 100*results[sut.name]['averageScoreClasses'])
                 print(out)
                 f.write(out + '\n')
             f.write('All Results:\n')
             for sut in self.sut_list:
                 f.write('SUT: %s\n' % sut.name)
-                f.write(results[sut.name] + '\n\n')
+                f.write(str(results[sut.name]) + '\n\n')
 
-    def run_on_cityscapes_benchmark(self):
+    def run_on_cityscapes_benchmark(self, pool_count=28):
         mutation_folder = MutationFolder(CITYSCAPES_DATA_ROOT + '/sut_gt_testing')
-        for camera_image in glob.glob(CITYSCAPES_DATA_ROOT + "/gtFine_trainvaltest/gtFine/leftImg8bit/train/**/*_leftImg8bit.png", recursive=True):
-            short_file = camera_image[camera_image.rfind('/') + 1:-len('_leftImg8bit.png')]
-            copyfile(camera_image, mutation_folder.folder + short_file + '_edit.png')
-        for gt_image in glob.glob(CITYSCAPES_DATA_ROOT + "/gtFine_trainvaltest/gtFine/train/**/*_gtFine_color.png", recursive=True):
-            short_file = gt_image[gt_image.rfind('/') + 1:-len('_gtFine_color.png')]
-            copyfile(gt_image, mutation_folder.mutations_gt_folder + short_file + '_mutation_gt.png')
-        self.sut_manager.run_suts(mutation_folder)
+        # for camera_image in glob.glob(CITYSCAPES_DATA_ROOT + "/gtFine_trainvaltest/gtFine/leftImg8bit/train/**/*_leftImg8bit.png", recursive=True):
+        #     short_file = camera_image[camera_image.rfind('/') + 1:-len('_leftImg8bit.png')]
+        #     copyfile(camera_image, mutation_folder.folder + short_file + '_edit.png')
+        # results = []
+        # with Pool(pool_count) as pool:
+        #     for gt_image in glob.glob(CITYSCAPES_DATA_ROOT + "/gtFine_trainvaltest/gtFine/train/**/*_gtFine_color.png", recursive=True):
+        #         short_file = gt_image[gt_image.rfind('/') + 1:-len('_gtFine_color.png')]
+        #         new_file = mutation_folder.mutations_gt_folder + short_file + '_mutation_gt.png'
+        #         results.append(pool.apply_async(save_paletted_image, (gt_image, new_file)))
+        #     for res in results:
+        #         res.wait()
+        # self.sut_manager.run_suts(mutation_folder)
         self.compute_cityscapes_metrics(mutation_folder)
 
     def visualize_diffs(self, sut_diffs):
@@ -257,12 +266,21 @@ def print_distances(polys: List[SemanticPolygon]):
 
 KEY_CLASSES = ['car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle', 'person', 'rider']
 if __name__ == '__main__':
-    folder = '/home/adwiii/git/perception_fuzzing/src/images/pool_testing/'
-    mutation_folder = MutationFolder(folder)
     tester = Tester()
-    tester.run_on_cityscapes_benchmark()
-    # tester.execute_tests(mutation_folder)
+    base_folder = '/home/adwiii/git/perception_fuzzing/src/images/thurs_'
+    for local_folder, mutation_type, arg_dict in [
+        ('add_person', MutationType.ADD_OBJECT, {'semantic_label': 'person'}),
+        ('add_car', MutationType.ADD_OBJECT, {'semantic_label': 'car'}),
+        ('person_color', MutationType.CHANGE_COLOR, {'semantic_label': 'person'}),
+        ('car_color', MutationType.CHANGE_COLOR, {'semantic_label': 'car'}),
+    ]:
+        folder = base_folder + local_folder
+        mutation_folder = MutationFolder(folder)
+        tester.execute_tests(mutation_folder, mutation_type=mutation_type, arg_dict=arg_dict)
     exit()
+
+    # tester.run_on_cityscapes_benchmark()
+
     # folder = '/home/adwiii/git/perception_fuzzing/src/images/cityscapes_good_gt_mutations_10k/'
     # folder = '/home/adwiii/git/perception_fuzzing/src/images/cityscapes_good_gt_mutations_add_car/'
     # folder = '/home/adwiii/git/perception_fuzzing/src/images/cityscapes_good_gt_add_person/'

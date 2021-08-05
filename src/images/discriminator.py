@@ -109,7 +109,7 @@ class DatasetGenerator(keras.utils.Sequence):
             self.y.append(1)  # edit class is 1
         for img_file in glob.glob("/home/adwiii/git/perception_fuzzing/src/images/**/*_orig.png"):
             self.x.append(img_file)
-            self.y.append(0)  # orig class is 1
+            self.y.append(0)  # orig class is 0m
         if shuffle:
             shuffler = np.random.permutation(len(self.x))
             self.x = [self.x[index] for index in shuffler]
