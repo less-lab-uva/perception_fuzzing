@@ -72,6 +72,8 @@ class MutationFolder:
     def __init__(self, base_folder):
         if base_folder[-1] != '/':
             base_folder += '/'
+        self.short_name = base_folder[:-1]  # remove trailing slash
+        self.short_name = self.short_name[self.short_name.rfind('/')+1:]  # remove leading path
         self.base_folder = base_folder
         self.folder = base_folder + 'mutations/'
         os.makedirs(self.folder, exist_ok=True)

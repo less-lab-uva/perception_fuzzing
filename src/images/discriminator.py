@@ -99,23 +99,22 @@ def load_image(image_file):
 
 
 class DatasetGenerator(keras.utils.Sequence):
-    def __init__(self, batch_size=100, shuffle=True):
+    def __init__(self, batch_size=50, shuffle=True):
         self.batch_size = batch_size
         self.x = []
         self.y = []
         self.img_map = {}
-        for img_file in glob.glob("/home/adwiii/git/perception_fuzzing/src/images/**/*_edit.png"):
+        for img_file in glob.glob("/home/adwiii/git/perception_fuzzing/src/images/fri_*/mutations/*_edit.png"):
             self.x.append(img_file)
             self.y.append(1)  # edit class is 1
-        for img_file in glob.glob("/home/adwiii/git/perception_fuzzing/src/images/**/*_orig.png"):
+        for img_file in glob.glob("/home/adwiii/data/cityscapes/sut_gt_testing/mutations/*.png"):
             self.x.append(img_file)
             self.y.append(0)  # orig class is 0m
         if shuffle:
             shuffler = np.random.permutation(len(self.x))
             self.x = [self.x[index] for index in shuffler]
             self.y = [self.y[index] for index in shuffler]
-        # print(len(self.x))
-        # exit()
+
         with Pool(28) as pool:
             results = {}
             for count, img_file in enumerate(self.x):
@@ -203,10 +202,15 @@ class CityscapesDiscriminator:
                     # if actual is 1 (meaning edited) and pred is 0 (meaning unedited) then we wan
                     # print(label_val[index])
                     f.write(str((image_files[index], pred_probs[index])) + '\n')
-        all_edits = [(image_files[index], pred_probs[index]) for i in range(len(image_files))]
+        all_edits = [(image_files[index], pred_probs[index], cpu_y[index], pred_y[index]) for index in range(len(image_files))]
         all_edits = sorted(all_edits, key=lambda item: item[1][0], reverse=True)
+        with open('/home/adwiii/git/perception_fuzzing/src/images/all_images_ranked_untrained.txt', 'w') as f:
+            for base_edit in all_edits:
+                f.write(str(base_edit) + '\n')
         with open('/home/adwiii/git/perception_fuzzing/src/images/all_edits_ranked_untrained.txt', 'w') as f:
             for base_edit in all_edits:
+                if base_edit[2] == 0:
+                    continue  # don't include the ones that were not edits
                 f.write(str(base_edit) + '\n')
 
     def train(self, data_root):
@@ -222,7 +226,7 @@ class CityscapesDiscriminator:
         if USE_CUDA:
             self.model = self.model.cuda()
             criterion = criterion.cuda()
-        num_epochs = 10
+        num_epochs = 75
         train_losses = []
         val_losses = []
         for epoch in range(num_epochs):
@@ -270,7 +274,8 @@ class CityscapesDiscriminator:
             val_losses.append(val_loss_epoch)
             # tr_loss = loss_train.item()
             print('Epoch : ', epoch + 1, '\t', 'loss :', train_loss_epoch, 'Time for epoch:', time.time() - epoch_start, 's')
-        torch.save(self.model.state_dict(), MODEL_PATH)
+            torch.save(self.model.state_dict(), MODEL_PATH)
+            print('Model Saved')
         plt.plot(train_losses, label='Training loss')
         plt.plot(val_losses, label='Validation loss')
         plt.legend()
@@ -284,20 +289,20 @@ class CityscapesDiscriminator:
 
 if __name__ == '__main__':
     loaded = torch.load(MODEL_PATH)
-    orig = Net().state_dict()
-    print(type(orig))
-    print(type(loaded))
-    for x, y in zip(orig, loaded):
-        print('key', x == y)
-        print('value', orig[x].cpu().detach().numpy() == loaded[y].cpu().detach().numpy())
-    exit()
+    # orig = Net().state_dict()
+    # print(type(orig))
+    # print(type(loaded))
+    # for x, y in zip(orig, loaded):
+    #     print('key', x == y)
+    #     print('value', orig[x].cpu().detach().numpy() == loaded[y].cpu().detach().numpy())
+    # exit()
     discriminator = CityscapesDiscriminator()
-    # if os.path.exists(MODEL_PATH):
-    #     print('model found, skipping training')
-    #     discriminator.load_state_dict(torch.load(MODEL_PATH))
+    if os.path.exists(MODEL_PATH):
+        print('model found, skipping training')
+        discriminator.load_state_dict(torch.load(MODEL_PATH))
     # else:
     #     print('no model found, starting training')
-    #     discriminator.train('/home/adwiii/data/cityscapes')
+    # discriminator.train('/home/adwiii/data/cityscapes')
     discriminator.model = discriminator.model.cuda()
     print('starting evaluation')
     discriminator.evaluate()
