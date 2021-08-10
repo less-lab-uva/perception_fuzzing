@@ -76,6 +76,9 @@ class MutationFolder:
         self.short_name = self.short_name[self.short_name.rfind('/')+1:]  # remove leading path
         self.base_folder = base_folder
         self.folder = base_folder + 'mutations/'
+        self.human_results = base_folder + 'results.txt'
+        self.raw_results = base_folder + 'raw_results.txt'
+        self.mutation_logs = base_folder + 'mutation_logs.txt'
         os.makedirs(self.folder, exist_ok=True)
         self.mutations_gt_folder = base_folder + 'mutations_gt/'
         os.makedirs(self.mutations_gt_folder, exist_ok=True)
@@ -87,6 +90,13 @@ class MutationFolder:
     def add_mutation(self, mutation):
         self.mutation_map[mutation.name] = mutation
         mutation.update_file_names(self.folder)
+
+    def record_mutations(self):
+        with open(self.mutation_logs, 'a') as f:
+            f.write('[\n')
+            for name, mutation in self.mutation_map.items():
+                f.write('(%s, %s),\n' % (name, str(mutation.params)))
+            f.write(']\n')
 
     def add_all(self, mutations):
         for mutation in mutations:
@@ -418,13 +428,16 @@ class MutationType(Enum):
 
 
 class Mutation:
-    def __init__(self, orig_image: Image, edit_image: Image, mutation_gt: Image, name=None):
+    def __init__(self, mutation_type: MutationType, orig_image: Image, edit_image: Image, mutation_gt: Image, name=None,
+                 params: dict = None):
         self.name = str(uuid.uuid4())
         if name is not None:
             self.name += '_' + name
         self.orig_image = orig_image
         self.edit_image = edit_image
         self.mutation_gt = mutation_gt
+        self.params = params
+        self.params['mutation_type'] = mutation_type
 
     def update_file_names(self, mutation_folder: MutationFolder):
         for image, postfix in [(self.orig_image, '_orig.png'),
@@ -468,14 +481,14 @@ class CityscapesMutator:
     COLOR_TO_ID = {(label.color[2], label.color[1], label.color[0]): label.name
                    for label in name2label.values() if label.id != -1 and label.trainId != 255}
 
-    def __init__(self, data_root):
+    def __init__(self, data_root, good_files=None):
         self.data_root = data_root
         self.mutate = ImageMutator()
         self.label_mapping: Dict[str, List[CityscapesPolygon]] = defaultdict(lambda: [])
         self.file_mapping: Dict[str, List[CityscapesPolygon]] = defaultdict(lambda: [])
         self.poly_id_mapping: Dict[str, CityscapesPolygon] = {}
         self.short_file_mapping: Dict[str, str] = {}
-        self.good_files = ['weimar_000075_000019', 'bochum_000000_020899', 'ulm_000056_000019', 'jena_000043_000019', 'monchengladbach_000000_028216', 'ulm_000007_000019', 'aachen_000159_000019', 'monchengladbach_000000_021104', 'tubingen_000123_000019', 'bremen_000187_000019', 'tubingen_000097_000019', 'darmstadt_000041_000019', 'weimar_000102_000019', 'monchengladbach_000000_015561', 'bremen_000288_000019', 'ulm_000085_000019', 'stuttgart_000156_000019', 'strasbourg_000001_037645', 'ulm_000080_000019', 'aachen_000135_000019', 'bochum_000000_021606', 'strasbourg_000001_015220', 'stuttgart_000154_000019', 'jena_000003_000019', 'tubingen_000106_000019', 'strasbourg_000000_018358', 'dusseldorf_000169_000019', 'bremen_000184_000019', 'erfurt_000063_000019', 'dusseldorf_000111_000019', 'zurich_000031_000019', 'bochum_000000_016758', 'tubingen_000118_000019', 'aachen_000056_000019', 'bremen_000297_000019', 'tubingen_000062_000019', 'stuttgart_000086_000019', 'bremen_000312_000019', 'bremen_000213_000019', 'monchengladbach_000001_001531', 'bochum_000000_013705', 'strasbourg_000000_017450', 'tubingen_000060_000019', 'darmstadt_000075_000019', 'weimar_000002_000019', 'darmstadt_000000_000019', 'krefeld_000000_030560', 'bremen_000301_000019', 'hanover_000000_042770', 'ulm_000042_000019', 'erfurt_000046_000019', 'dusseldorf_000053_000019', 'erfurt_000070_000019', 'dusseldorf_000130_000019', 'bremen_000263_000019', 'bochum_000000_016125', 'hanover_000000_007897', 'stuttgart_000006_000019', 'bremen_000280_000019', 'hanover_000000_000381', 'bremen_000046_000019', 'krefeld_000000_025434', 'strasbourg_000001_009097', 'hanover_000000_024276', 'strasbourg_000001_054275', 'stuttgart_000077_000019', 'strasbourg_000001_052497', 'bremen_000105_000019', 'bremen_000186_000019', 'bremen_000192_000019', 'erfurt_000086_000019', 'jena_000014_000019', 'aachen_000152_000019', 'stuttgart_000007_000019', 'weimar_000051_000019', 'darmstadt_000059_000019', 'darmstadt_000007_000019', 'bremen_000008_000019', 'bremen_000039_000019', 'weimar_000010_000019', 'strasbourg_000000_017593', 'erfurt_000000_000019', 'erfurt_000094_000019', 'hanover_000000_050228', 'bremen_000233_000019', 'aachen_000043_000019', 'dusseldorf_000136_000019', 'darmstadt_000047_000019', 'bochum_000000_020776', 'jena_000058_000019', 'strasbourg_000000_021231', 'erfurt_000088_000019', 'ulm_000040_000019', 'weimar_000131_000019', 'weimar_000083_000019', 'aachen_000129_000019', 'dusseldorf_000042_000019', 'tubingen_000063_000019', 'hanover_000000_019672', 'erfurt_000011_000019', 'stuttgart_000081_000019', 'ulm_000041_000019', 'cologne_000137_000019', 'jena_000101_000019', 'stuttgart_000013_000019', 'bochum_000000_024717', 'strasbourg_000000_033062', 'dusseldorf_000007_000019', 'zurich_000089_000019', 'bremen_000308_000019', 'dusseldorf_000165_000019', 'bremen_000032_000019', 'weimar_000012_000019', 'erfurt_000092_000019', 'erfurt_000042_000019', 'dusseldorf_000122_000019', 'strasbourg_000000_031223', 'bochum_000000_008804', 'hamburg_000000_077642', 'bremen_000126_000019', 'krefeld_000000_012353', 'strasbourg_000000_000751', 'weimar_000126_000019', 'erfurt_000078_000019', 'hamburg_000000_059720', 'darmstadt_000006_000019', 'dusseldorf_000087_000019', 'monchengladbach_000001_000537', 'strasbourg_000001_053976', 'strasbourg_000000_013574', 'weimar_000007_000019', 'zurich_000053_000019', 'jena_000001_000019', 'bochum_000000_008162', 'zurich_000113_000019', 'monchengladbach_000000_019142', 'zurich_000020_000019', 'bremen_000267_000019', 'bremen_000038_000019', 'tubingen_000023_000019', 'aachen_000001_000019', 'bochum_000000_025833', 'cologne_000001_000019', 'strasbourg_000001_039703', 'aachen_000126_000019', 'jena_000034_000019', 'stuttgart_000162_000019', 'krefeld_000000_006274', 'erfurt_000030_000019', 'monchengladbach_000000_023052', 'jena_000017_000019', 'monchengladbach_000000_024964', 'cologne_000004_000019', 'erfurt_000008_000019', 'erfurt_000096_000019', 'strasbourg_000001_014629', 'tubingen_000102_000019', 'tubingen_000050_000019', 'cologne_000150_000019', 'bremen_000259_000019', 'dusseldorf_000097_000019', 'dusseldorf_000101_000019', 'tubingen_000090_000019', 'aachen_000112_000019', 'hanover_000000_055592', 'aachen_000096_000019', 'strasbourg_000001_003159', 'strasbourg_000000_035942', 'bochum_000000_006026', 'monchengladbach_000000_006169', 'bremen_000121_000019', 'zurich_000119_000019', 'tubingen_000099_000019', 'strasbourg_000001_043748', 'stuttgart_000031_000019', 'bochum_000000_010700', 'stuttgart_000193_000019', 'strasbourg_000000_018874', 'strasbourg_000001_035276', 'krefeld_000000_005503', 'hanover_000000_037516', 'weimar_000005_000019', 'erfurt_000061_000019', 'erfurt_000101_000019', 'strasbourg_000000_034040', 'bochum_000000_026634', 'stuttgart_000071_000019', 'bremen_000064_000019', 'strasbourg_000000_009619', 'aachen_000151_000019', 'aachen_000153_000019', 'bochum_000000_003005', 'tubingen_000021_000019', 'aachen_000025_000019', 'tubingen_000140_000019', 'strasbourg_000000_036016', 'dusseldorf_000107_000019', 'strasbourg_000001_035689', 'jena_000030_000019', 'ulm_000046_000019', 'jena_000069_000019', 'erfurt_000027_000019', 'dusseldorf_000063_000019', 'monchengladbach_000000_002255', 'weimar_000045_000019', 'jena_000100_000019', 'dusseldorf_000145_000019', 'bremen_000173_000019', 'weimar_000115_000019', 'bremen_000095_000019', 'stuttgart_000101_000019', 'strasbourg_000001_059675', 'strasbourg_000001_064224', 'dusseldorf_000189_000019', 'aachen_000035_000019', 'stuttgart_000142_000019', 'jena_000074_000019', 'cologne_000117_000019', 'weimar_000134_000019', 'tubingen_000075_000019', 'dusseldorf_000054_000019', 'bremen_000272_000019', 'zurich_000008_000019', 'strasbourg_000001_012956', 'dusseldorf_000202_000019', 'tubingen_000089_000019', 'monchengladbach_000000_034302', 'dusseldorf_000108_000019', 'bremen_000238_000019', 'ulm_000036_000019', 'bremen_000185_000019', 'aachen_000040_000019', 'tubingen_000086_000019', 'strasbourg_000000_006995', 'zurich_000082_000019', 'stuttgart_000068_000019', 'bochum_000000_031922', 'bremen_000309_000019', 'ulm_000045_000019', 'bremen_000135_000019', 'weimar_000046_000019', 'strasbourg_000001_048605', 'hamburg_000000_013577', 'aachen_000149_000019', 'cologne_000059_000019', 'jena_000072_000019', 'dusseldorf_000102_000019', 'ulm_000090_000019', 'strasbourg_000000_019229', 'ulm_000027_000019', 'tubingen_000074_000019', 'weimar_000110_000019', 'bremen_000236_000019', 'bremen_000122_000019', 'erfurt_000016_000019', 'bremen_000002_000019', 'dusseldorf_000039_000019', 'dusseldorf_000059_000019', 'monchengladbach_000000_015126', 'tubingen_000101_000019', 'bochum_000000_033531', 'ulm_000008_000019', 'erfurt_000103_000019', 'monchengladbach_000000_010860', 'dusseldorf_000125_000019', 'weimar_000092_000019', 'cologne_000111_000019', 'hamburg_000000_093787', 'stuttgart_000002_000019', 'erfurt_000041_000019', 'hanover_000000_013094', 'tubingen_000130_000019', 'ulm_000094_000019', 'tubingen_000091_000019', 'ulm_000092_000019', 'hanover_000000_056457', 'strasbourg_000000_028240', 'erfurt_000025_000019', 'stuttgart_000030_000019', 'krefeld_000000_029050', 'stuttgart_000069_000019', 'strasbourg_000001_022363', 'stuttgart_000112_000019', 'krefeld_000000_000108', 'erfurt_000049_000019', 'tubingen_000121_000019', 'dusseldorf_000133_000019', 'ulm_000025_000019', 'tubingen_000028_000019', 'strasbourg_000001_033925', 'hamburg_000000_001613', 'strasbourg_000000_023854', 'aachen_000063_000019', 'weimar_000065_000019', 'jena_000022_000019', 'jena_000059_000019', 'aachen_000055_000019', 'aachen_000023_000019', 'bochum_000000_017453', 'strasbourg_000001_001072', 'stuttgart_000124_000019', 'stuttgart_000191_000019', 'stuttgart_000158_000019', 'stuttgart_000082_000019', 'weimar_000067_000019', 'weimar_000019_000019', 'bremen_000193_000019', 'hanover_000000_034141', 'aachen_000068_000019', 'aachen_000158_000019', 'tubingen_000127_000019', 'cologne_000118_000019', 'aachen_000080_000019', 'jena_000002_000019', 'dusseldorf_000028_000019', 'stuttgart_000078_000019', 'bochum_000000_023040', 'bremen_000016_000019', 'strasbourg_000001_058954', 'tubingen_000020_000019', 'hamburg_000000_021353', 'stuttgart_000120_000019', 'ulm_000013_000019', 'ulm_000066_000019', 'bremen_000251_000019', 'bremen_000025_000019', 'hanover_000000_038773', 'aachen_000173_000019', 'bremen_000048_000019', 'dusseldorf_000060_000019', 'hamburg_000000_099368', 'strasbourg_000001_037776', 'cologne_000051_000019', 'darmstadt_000054_000019', 'bremen_000033_000019', 'bochum_000000_024855', 'bochum_000000_037829', 'dusseldorf_000030_000019', 'hanover_000000_003411', 'tubingen_000018_000019', 'bremen_000190_000019', 'stuttgart_000022_000019', 'jena_000013_000019', 'aachen_000082_000019', 'dusseldorf_000073_000019', 'aachen_000027_000019', 'weimar_000082_000019', 'weimar_000056_000019', 'erfurt_000083_000019', 'ulm_000063_000019', 'strasbourg_000001_040761', 'erfurt_000014_000019', 'bremen_000156_000019', 'bremen_000043_000019', 'dusseldorf_000095_000019', 'strasbourg_000001_015974', 'dusseldorf_000044_000019', 'dusseldorf_000043_000019', 'krefeld_000000_030111', 'hanover_000000_021337', 'hanover_000000_045657', 'ulm_000058_000019', 'weimar_000091_000019', 'erfurt_000053_000019', 'hanover_000000_019456', 'hanover_000000_000712', 'stuttgart_000175_000019', 'dusseldorf_000161_000019', 'bochum_000000_005537', 'bremen_000154_000019', 'dusseldorf_000050_000019', 'stuttgart_000122_000019', 'hanover_000000_010553', 'erfurt_000019_000019', 'tubingen_000043_000019', 'aachen_000150_000019', 'zurich_000032_000019', 'dusseldorf_000098_000019', 'erfurt_000091_000019', 'strasbourg_000000_012070', 'dusseldorf_000091_000019', 'cologne_000058_000019', 'krefeld_000000_018866', 'stuttgart_000148_000019', 'weimar_000109_000019', 'jena_000037_000019', 'bochum_000000_022210', 'zurich_000099_000019', 'stuttgart_000005_000019', 'stuttgart_000164_000019', 'strasbourg_000001_052544', 'darmstadt_000060_000019', 'zurich_000095_000019', 'krefeld_000000_016342', 'bremen_000148_000019', 'bremen_000091_000019', 'bochum_000000_009554', 'jena_000109_000019', 'erfurt_000084_000019', 'zurich_000046_000019', 'ulm_000091_000019', 'jena_000064_000019', 'aachen_000074_000019', 'strasbourg_000001_033448', 'tubingen_000134_000019', 'weimar_000111_000019', 'erfurt_000013_000019', 'aachen_000095_000019', 'strasbourg_000001_021951', 'strasbourg_000001_043886', 'erfurt_000022_000019', 'ulm_000084_000019', 'zurich_000017_000019', 'erfurt_000038_000019', 'stuttgart_000195_000019', 'bremen_000284_000019', 'aachen_000058_000019', 'bochum_000000_031152', 'bremen_000174_000019', 'bremen_000194_000019', 'ulm_000047_000019', 'tubingen_000133_000019', 'erfurt_000051_000019', 'erfurt_000079_000019', 'jena_000050_000019', 'zurich_000083_000019', 'hanover_000000_048765', 'tubingen_000033_000019', 'hanover_000000_037298', 'strasbourg_000001_037906', 'weimar_000103_000019', 'bremen_000031_000019', 'tubingen_000073_000019', 'tubingen_000135_000019', 'tubingen_000112_000019', 'bremen_000170_000019', 'strasbourg_000001_057129', 'cologne_000030_000019', 'zurich_000085_000019', 'hamburg_000000_049558', 'bochum_000000_025746', 'weimar_000049_000019', 'monchengladbach_000000_019901', 'krefeld_000000_026919', 'bochum_000000_009951', 'tubingen_000044_000019', 'ulm_000089_000019', 'stuttgart_000178_000019', 'bremen_000041_000019', 'monchengladbach_000000_033454', 'krefeld_000000_024921', 'bremen_000265_000019', 'monchengladbach_000000_020596', 'dusseldorf_000217_000019', 'erfurt_000064_000019', 'aachen_000057_000019', 'strasbourg_000001_026606', 'strasbourg_000001_016681', 'bremen_000157_000019', 'weimar_000060_000019', 'bremen_000231_000019', 'strasbourg_000001_065572', 'monchengladbach_000000_026602', 'stuttgart_000155_000019', 'dusseldorf_000099_000019', 'weimar_000022_000019', 'ulm_000002_000019', 'tubingen_000092_000019', 'bremen_000118_000019', 'erfurt_000062_000019', 'tubingen_000011_000019', 'krefeld_000000_020873', 'ulm_000039_000019', 'strasbourg_000000_021651', 'hanover_000000_045188', 'bochum_000000_005936', 'zurich_000049_000019', 'dusseldorf_000069_000019', 'dusseldorf_000088_000019', 'weimar_000000_000019', 'bochum_000000_028764', 'strasbourg_000001_017675', 'ulm_000088_000019', 'strasbourg_000000_012934', 'zurich_000097_000019', 'strasbourg_000000_006106', 'jena_000038_000019', 'weimar_000139_000019', 'strasbourg_000000_000065', 'strasbourg_000000_022067', 'krefeld_000000_021553', 'dusseldorf_000174_000019', 'erfurt_000026_000019', 'hanover_000000_006922', 'jena_000082_000019', 'strasbourg_000000_034652', 'strasbourg_000001_013767', 'weimar_000055_000019', 'jena_000103_000019', 'krefeld_000000_011483', 'ulm_000034_000019', 'darmstadt_000010_000019', 'darmstadt_000057_000019', 'erfurt_000100_000019', 'aachen_000086_000019', 'weimar_000020_000019', 'dusseldorf_000214_000019', 'monchengladbach_000000_030010', 'bremen_000143_000019', 'aachen_000064_000019', 'hamburg_000000_067223', 'dusseldorf_000184_000019', 'dusseldorf_000046_000019', 'ulm_000044_000019', 'dusseldorf_000148_000019', 'erfurt_000087_000019', 'zurich_000112_000019', 'stuttgart_000129_000019', 'bochum_000000_030913', 'weimar_000071_000019', 'bochum_000000_031477', 'erfurt_000097_000019', 'stuttgart_000087_000019', 'bremen_000166_000019', 'dusseldorf_000049_000019', 'hanover_000000_011170', 'strasbourg_000001_001449', 'bremen_000292_000019', 'bochum_000000_029721', 'stuttgart_000023_000019', 'tubingen_000022_000019', 'aachen_000164_000019', 'stuttgart_000126_000019', 'bremen_000160_000019', 'bochum_000000_031687', 'bremen_000036_000019', 'weimar_000076_000019', 'dusseldorf_000167_000019', 'erfurt_000036_000019', 'bremen_000037_000019', 'bremen_000195_000019', 'dusseldorf_000182_000019', 'tubingen_000117_000019', 'ulm_000028_000019', 'aachen_000046_000019', 'hamburg_000000_030953', 'ulm_000086_000019', 'krefeld_000000_035124', 'ulm_000078_000019', 'bochum_000000_001519', 'monchengladbach_000000_024637', 'ulm_000023_000019', 'darmstadt_000011_000019', 'weimar_000124_000019', 'erfurt_000089_000019', 'strasbourg_000001_062691', 'weimar_000004_000019', 'weimar_000052_000019', 'hanover_000000_051536', 'monchengladbach_000000_033683', 'hamburg_000000_077144', 'bochum_000000_010562', 'weimar_000113_000019', 'stuttgart_000160_000019', 'bremen_000227_000019', 'jena_000011_000019', 'hamburg_000000_043944', 'ulm_000048_000019', 'strasbourg_000000_030706', 'weimar_000031_000019', 'bochum_000000_007651', 'dusseldorf_000212_000019', 'stuttgart_000040_000019', 'bremen_000315_000019', 'hanover_000000_046732', 'stuttgart_000128_000019', 'darmstadt_000053_000019', 'aachen_000169_000019', 'zurich_000111_000019', 'ulm_000035_000019', 'aachen_000165_000019', 'ulm_000049_000019', 'erfurt_000012_000019', 'dusseldorf_000153_000019', 'bremen_000024_000019', 'strasbourg_000001_003676', 'strasbourg_000000_018153', 'stuttgart_000150_000019', 'monchengladbach_000000_005138', 'bremen_000298_000019', 'aachen_000053_000019', 'aachen_000163_000019', 'tubingen_000098_000019', 'jena_000049_000019', 'tubingen_000067_000019', 'monchengladbach_000000_019682', 'strasbourg_000000_027771', 'bremen_000266_000019', 'jena_000057_000019', 'weimar_000044_000019', 'bremen_000057_000019', 'krefeld_000000_027954', 'strasbourg_000001_000508', 'bremen_000028_000019', 'erfurt_000004_000019', 'monchengladbach_000001_000054', 'darmstadt_000048_000019', 'weimar_000047_000019', 'bochum_000000_004748', 'ulm_000055_000019', 'weimar_000100_000019', 'strasbourg_000000_026998', 'hanover_000000_052512', 'monchengladbach_000000_028563', 'erfurt_000085_000019', 'krefeld_000000_008239', 'zurich_000093_000019', 'aachen_000143_000019', 'strasbourg_000001_032315', 'stuttgart_000015_000019', 'strasbourg_000001_002644', 'stuttgart_000053_000019', 'stuttgart_000057_000019', 'bremen_000119_000019', 'tubingen_000088_000019', 'hanover_000000_019116', 'krefeld_000000_024276', 'tubingen_000137_000019', 'stuttgart_000049_000019', 'hamburg_000000_004985', 'dusseldorf_000052_000019']
+        self.good_files = good_files
         self.build_image_dict()
 
     def apply_mutation(self, mutation_type: MutationType, arg_dict):
@@ -490,9 +503,9 @@ class CityscapesMutator:
         return self.short_file_mapping[short_file]
 
     def build_image_dict(self):
-        for file in glob.glob(self.data_root + "/gtFine_trainvaltest/gtFine/train/**/*.json", recursive=True):
+        for file in glob.glob(self.data_root + "/gtFine_trainvaltest/gtFine/**/*.json", recursive=True):
             short_file = file[file.rfind('/')+1:-len('_gtFine_polygons.json')]
-            if short_file not in self.good_files:
+            if self.good_files is not None and short_file not in self.good_files:
                 continue
             self.short_file_mapping[short_file] = file
             with open(file) as f:
@@ -531,23 +544,24 @@ class CityscapesMutator:
             name = file[file.rfind('/') + 1:-21]
             cv2.imwrite(dest_folder + '/' + name + '.png', img)
 
-    def get_random_instance(self, label='car'):
+    def get_random_instance(self, label='car') -> CityscapesPolygon:
         obj_list = self.label_mapping[label]
         return random.choice(obj_list)
 
     def load_image(self, json_file: str):
-        file = json_file.replace('/train', '/leftImg8bit/train').replace('gtFine_polygons.json', 'leftImg8bit.png')
+        file = json_file.replace('gtFine/', 'gtFine/leftImg8bit').replace('gtFine_polygons.json', 'leftImg8bit.png')
         img = cv2.imread(file)
         return img
 
-    def add_instance(self, semantic_label='car', road_id=None, car_id=None, rotation=None):
-        if road_id is None:
+    def add_instance(self, semantic_label='car', bg_id=None, add_id=None, rotation=None):
+        if bg_id is None:
             road_mask = None
             while road_mask is None:
                 road_poly = self.get_random_instance('road')
                 road_mask = self.get_instance_mask(road_poly)
+            bg_id = road_poly.poly_id
         else:
-            road_poly = self.poly_id_mapping[road_id]
+            road_poly = self.poly_id_mapping[bg_id]
             road_mask = self.get_instance_mask(road_poly)
             if road_mask is None:
                 return None
@@ -555,8 +569,8 @@ class CityscapesMutator:
         # print('road mask', road_mask.shape)
         road_img = self.load_image(road_poly.json_file)
         road_vanishing_point = get_vanishing_point(road_img)
-        if car_id is not None:
-            car_poly = self.poly_id_mapping[car_id]
+        if add_id is not None:
+            car_poly = self.poly_id_mapping[add_id]
             instance_mask = self.get_instance_mask(car_poly)
             thresh = cv2.threshold(instance_mask, 1, 255, cv2.THRESH_BINARY)[1]
             contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -570,6 +584,7 @@ class CityscapesMutator:
             found = False
             while count > 0 and not found:
                 car_poly = self.get_random_instance(semantic_label)
+                add_id = car_poly.poly_id
                 instance_mask, orig_car_poly, other_polys = self.get_instance_mask(car_poly, return_other_polys=True)
                 # if the car is too small or not contiguous then skip it
                 thresh = cv2.threshold(instance_mask, 1, 255, cv2.THRESH_BINARY)[1]
@@ -618,16 +633,22 @@ class CityscapesMutator:
             if not found:
                 return None
         lower_left = (mins[0], maxs[1])
+        param_map = {
+            'bg_id': bg_id,
+            'add_id': add_id
+        }
         name = road_poly.json_file[road_poly.json_file.rfind('/') + 1:-21]
         img = self.mutate.add_object(random_car_image, instance_mask, road_img, lower_left, add_shadow=False, rotation=rotation)
         mutation_gt = road_poly.get_gt_semantics_image()
         rgb = name2label[semantic_label].color
         mutation_gt = cv2.fillPoly(mutation_gt, pts=[car_polygon], color=(rgb[2], rgb[1], rgb[0]))
-        mutation = Mutation(Image(road_img), Image(img), name=name, mutation_gt=Image(mutation_gt))
+        mutation = Mutation(MutationType.ADD_OBJECT, Image(road_img), Image(img), name=name,
+                            mutation_gt=Image(mutation_gt), params=param_map)
         return mutation
 
     def change_instance_color(self, semantic_label='car', poly_id=None):
         city_poly = self.get_random_instance(semantic_label) if poly_id is None else self.poly_id_mapping[poly_id]
+        poly_id = city_poly.poly_id
         random_car_file = city_poly.json_file
         name = random_car_file[random_car_file.rfind('/')+1:-21]
         random_car_image = self.load_image(random_car_file)
@@ -643,7 +664,7 @@ class CityscapesMutator:
         # print('found bounding rect')
         random_car_isolated = self.mutate.get_isolated(random_car_image, random_car_mask)
         # print('isolated car')
-        random_car_colored = self.mutate.change_car_color(random_car_isolated)
+        random_car_colored, color_shift, dec_lit, inc_sat = self.mutate.change_car_color(random_car_isolated)
         # cv2.imshow('isolate', random_car_colored)
         # cv2.waitKey()
         # print('re-colored car')
@@ -652,7 +673,14 @@ class CityscapesMutator:
         # cv2.imshow('color', cv2.resize(img, (512, 288)))
         # cv2.waitKey()
         # print('returning mutation')
-        mutation = Mutation(Image(random_car_image), Image(img), name=name, mutation_gt=Image(city_poly.get_gt_semantics_image()))
+        param_map = {
+            'poly_id': poly_id,
+            'color_shift': color_shift,
+            'dec_lit': dec_lit,
+            'inc_sat': inc_sat
+        }
+        mutation = Mutation(MutationType.CHANGE_COLOR, Image(random_car_image), Image(img), name=name,
+                            mutation_gt=Image(city_poly.get_gt_semantics_image()), params=param_map)
         return mutation
 
     def get_instance_mask(self, city_poly: CityscapesPolygon, filter_in_front=True, color=None, return_other_polys=False):
@@ -710,18 +738,15 @@ class NuScenesMutator:
         img = self.load_image(random_road_sample)
         car_loc = self.get_random_road_location(random_road_sample)
         obj_list = [object_class if not isinstance(object_class, list) else object_class]
-        random_car = random.choice(self.get_instances(None, obj_list))
-        # print(random_car)
-        random_car_image = self.load_image(self.sample_for_object(random_car))
-        instance_mask = self.get_instance_mask(random_car)
+        add_id = random.choice(self.get_instances(None, obj_list))
+        bg_id = self.sample_for_object(add_id)
+        random_car_image = self.load_image(bg_id)
+        instance_mask = self.get_instance_mask(add_id)
         while instance_mask is None or not self.mutate.is_contiguous(instance_mask) or not self.mutate.is_larger_than(instance_mask, (100, 100), both=False):
-            random_car = random.choice(self.get_instances(None, obj_list))
-            random_car_image = self.load_image(self.sample_for_object(random_car))
-            instance_mask = self.get_instance_mask(random_car)
-        # cv2.imshow('random_car_image', random_car_image)
+            add_id = random.choice(self.get_instances(None, obj_list))
+            random_car_image = self.load_image(self.sample_for_object(add_id))
+            instance_mask = self.get_instance_mask(add_id)
         added_car = self.mutate.add_object(random_car_image, instance_mask, img, car_loc)
-        # cv2.imshow('added_car', added_car)
-        # cv2.waitKey()
 
         orig_prediction = self.gt_for_sample(random_road_sample)
         im = np.copy(orig_prediction)
@@ -729,38 +754,36 @@ class NuScenesMutator:
         total = max(all_car.shape[0], all_car.shape[1])
         all_car = cv2.rectangle(all_car, (0, 0), (total, total), (142, 0, 0), -1)  # this is the color of car in cityscapes (in BGR here)
         mutate_gt = self.mutate.add_object(all_car, instance_mask, im, car_loc)
-        mutation = Mutation(Image(img), Image(added_car), Image(mutate_gt))
+        param_map = {
+            'bg_id': bg_id,
+            'add_id': add_id
+        }
+        mutation = Mutation(MutationType.ADD_OBJECT, Image(img), Image(added_car), Image(mutate_gt), param_map)
         return mutation
 
     def change_car_color(self):
         random_car = random.choice(self.get_instances(None, 'vehicle.car'))
-        # random_car = '7e8f5f8c9171456ca99f52a2622b1811'
-        # random_car = '4ee00f752b3d402282eeb5e1ee2a32c7'
-        # random_car = '971a09a08d4a40fa83e87d3eb450744f'
-        # random_car = random.choice(self.get_instances('b425d713d52c4cc8b334eea2ac325bd4', 'vehicle.car'))
-        # print(random_car)
         sample = self.sample_for_object(random_car)
-        # print(sample)
         random_car_image = self.load_image(sample)
         random_car_mask = self.get_instance_mask(random_car)
         x, y, w, h = self.mutate.mask_bounding_rect(random_car_mask)
         if w < 50 or h < 50:
             return None
         random_car_isolated = self.mutate.get_isolated(random_car_image, random_car_mask)
-        random_car_colored = self.mutate.change_car_color(random_car_isolated)
-        # cv2.imshow('isolate', random_car_colored)
-        # cv2.waitKey()
+        random_car_colored, color_shift, dec_lit, inc_sat = self.mutate.change_car_color(random_car_isolated)
         img = self.mutate.add_isolated_object(random_car_colored, random_car_image, (x, y+h), random_car_mask)
-        # cv2.imshow('orig', cv2.resize(random_car_isolated, (512, 288)))
-        # cv2.imshow('color', cv2.resize(img, (512, 288)))
-        # cv2.waitKey()
-        mutation = Mutation(Image(random_car_image), Image(img), Image(self.gt_for_sample(sample)))
+        param_map = {
+            'poly_id': random_car,
+            'color_shift': color_shift,
+            'dec_lit': dec_lit,
+            'inc_sat': inc_sat
+        }
+        mutation = Mutation(MutationType.CHANGE_COLOR, Image(random_car_image), Image(img),
+                            Image(self.gt_for_sample(sample)), param_map)
         return mutation
 
     def sample_for_object(self, object_token, table='object_ann'):
-        # print(self.nuim.get('object_ann', object_token))
         sample_token = self.nuim.get(table, object_token)['sample_data_token']
-        # print(self.nuim.get('sample_data', sample_token))
         return self.nuim.get('sample_data', sample_token)['sample_token']
 
     def sample_for_surface(self, surface_token):
@@ -853,11 +876,11 @@ class ImageMutator:
         mask = self.__normalize_mask(mask)
         return cv2.bitwise_and(img, img, mask=mask)  # isolate just the part we want to add
 
-    def change_car_color(self, isolated):
+    def change_car_color(self, isolated, color_shift=None, dec_lit=None, inc_sat=None):
         # TODO isolate the parts of the car that can change color (i.e. not the windows, etc.)
-        return self.change_color(isolated)
+        return self.change_color(isolated, color_shift, dec_lit, inc_sat)
 
-    def change_color(self, isolated, color_shift=None):
+    def change_color(self, isolated, color_shift=None, dec_lit=None, inc_sat=None):
         # Current problems:
         # If the car is already very low V (black) then changing the hue doesn't help much
         # If the car is already very low S (white) then changing the hue doesn't help much
@@ -868,11 +891,7 @@ class ImageMutator:
         cropped_mask_hls = cv2.cvtColor(cropped_mask, cv2.COLOR_BGR2HLS)
         ch, cl, cs = cv2.split(cropped_mask_hls)
         avg_light = np.mean(cl[cl > 0])
-        avg_sat = np.mean(cs[cs > 0])
-        # print(avg_sat, avg_light)
-        if color_shift is None:
-            color_shift = random.randint(45, 135)
-        # alpha = isolated[:, :, 3]
+        color_shift = color_shift if color_shift is not None else random.randint(45, 135)
         hsv = cv2.cvtColor(isolated, cv2.COLOR_BGR2HLS)
         h, l, s = cv2.split(hsv)
         # shift the hue to change the color
@@ -883,23 +902,16 @@ class ImageMutator:
         sat_thresh = 50
         # for handling white cars
         if avg_light > 100:
-            # plt.plot(l)
-            # plt.show()
-            dec_lit = random.randint(20, 50)
-            # l[l >= lit_thresh] -= dec_lit
+            dec_lit = dec_lit if dec_lit is not None else random.randint(20, 50)
             l[l >= lit_thresh] -= dec_lit
-            inc_sat = random.randint(10, 40)
+            inc_sat = inc_sat if inc_sat is not None else random.randint(10, 40)
             locs = np.where((l >= lit_thresh) & (s <= sat_thresh))
             s[locs] += inc_sat
         else:
             pass
-        # if
         hls = cv2.merge([h, l, s])
         bgr_new = cv2.cvtColor(hls, cv2.COLOR_HLS2BGR)
-        # bgra = cv2.cvtColor(bgr_new, cv2.COLOR_BGR2BGRA)
-        # bgra[:, :, 3] = alpha
-        # cv2.waitKey()
-        return bgr_new
+        return bgr_new, color_shift, dec_lit, inc_sat
 
     def add_object(self, src, src_mask, dest, dest_loc, add_shadow=False, rotation=None):
         """
