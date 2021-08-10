@@ -39,6 +39,8 @@ class Tester:
     pool_count = None
     _initialized = False
     SCORE_THRESHOLD = 0.8
+    cityscapes_results = None
+    __cityscapes_runs_folder = None
 
     @staticmethod
     def initialize(cityscapes_data_root=None, pool_count=30, score_threshold=None):
@@ -60,13 +62,13 @@ class Tester:
         cityscapes_runs_folder = Tester.__get_cityscapes_runs_folder()
         if os.path.exists(cityscapes_runs_folder.raw_results):
             with open(cityscapes_runs_folder.raw_results) as f:
-                cityscapes_results = eval(f.read())
+                Tester.cityscapes_results = eval(f.read())
         else:
-            cityscapes_results = Tester.run_on_cityscapes_benchmark()  # this will run and return, saving for next time
+            Tester.cityscapes_results = Tester.run_on_cityscapes_benchmark()  # this will run and return, saving for next time
         if score_threshold is not None:
             Tester.SCORE_THRESHOLD = score_threshold
         good_files = [Tester.get_base_file(image[0])
-                      for image in cityscapes_results[Tester.BEST_SUT.name]["perImageScores"]
+                      for image in Tester.cityscapes_results[Tester.BEST_SUT.name]["perImageScores"]
                       if Tester.get_score(image) > Tester.SCORE_THRESHOLD]
         print(good_files)
         print('found %d good files' % len(good_files))
@@ -208,14 +210,17 @@ class Tester:
         for camera_image in glob.glob(Tester.CITYSCAPES_DATA_ROOT +
                                       "/gtFine_trainvaltest/gtFine/leftImg8bit/**/*_leftImg8bit.png", recursive=True):
             short_file = camera_image[camera_image.rfind('/') + 1:-len('_leftImg8bit.png')]
-            copyfile(camera_image, mutation_folder.folder + short_file + '_edit.png')
+            new_file = mutation_folder.folder + short_file + '_edit.png'
+            if not os.path.exists(new_file):
+                copyfile(camera_image, new_file)
         results = []
         with Pool(Tester.pool_count) as pool:
             for gt_image in glob.glob(Tester.CITYSCAPES_DATA_ROOT +
                                       "/gtFine_trainvaltest/gtFine/**/*_gtFine_color.png", recursive=True):
                 short_file = gt_image[gt_image.rfind('/') + 1:-len('_gtFine_color.png')]
                 new_file = mutation_folder.mutations_gt_folder + short_file + '_mutation_gt.png'
-                results.append(pool.apply_async(save_paletted_image, (gt_image, new_file)))
+                if not os.path.exists(new_file):
+                    results.append(pool.apply_async(save_paletted_image, (gt_image, new_file)))
             for res in results:
                 res.wait()
         Tester.sut_manager.run_suts(mutation_folder)
@@ -367,7 +372,8 @@ def plot_hist_as_line(data, label, bin_count=None, bins=None):
 
 KEY_CLASSES = ['car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle', 'person', 'rider']
 if __name__ == '__main__':
-    tester = Tester()
+    Tester.initialize()
+    exit()
     # mutation_folder = MutationFolder('/home/adwiii/git/perception_fuzzing/src/images/new_mutation_gt')
     # tester.compute_cityscapes_metrics(mutation_folder)
     base_folder = '/home/adwiii/git/perception_fuzzing/src/images/fri_'
