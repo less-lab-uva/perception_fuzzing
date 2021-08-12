@@ -1,4 +1,6 @@
+import glob
 import itertools
+import re
 from collections import Counter
 import copy
 import pprint
@@ -38,13 +40,20 @@ class Tester:
     sut_manager = None
     pool_count = None
     _initialized = False
-    SCORE_THRESHOLD = 0.8
+    SCORE_THRESHOLD = 80  # As a percent out of 100
     cityscapes_results = None
     __cityscapes_runs_folder = None
+    working_directory = str(current_file_path.parent.parent.absolute()) + '/world_fuzzing/'
+    mutation_folders = []
 
     @staticmethod
-    def initialize(cityscapes_data_root=None, pool_count=30, score_threshold=None):
+    def initialize(working_directory=None, cityscapes_data_root=None, pool_count=30, score_threshold=None):
         Tester._initialized = True
+        if working_directory is not None:
+            Tester.working_directory = working_directory
+        if Tester.working_directory[-1] != '/':
+            Tester.working_directory += '/'
+        os.makedirs(Tester.working_directory, exist_ok=True)
         Tester.BEST_SUT = NVIDIASemSeg('/home/adwiii/git/nvidia/semantic-segmentation')
         Tester.sut_list = [
             Tester.BEST_SUT,
@@ -60,23 +69,48 @@ class Tester:
             Tester.CITYSCAPES_DATA_ROOT = cityscapes_data_root
 
         cityscapes_runs_folder = Tester.__get_cityscapes_runs_folder()
-        if os.path.exists(cityscapes_runs_folder.raw_results):
-            with open(cityscapes_runs_folder.raw_results) as f:
-                Tester.cityscapes_results = eval(f.read())
+        all_paths_exist = True
+        for sut in Tester.sut_list:
+            if not os.path.exists(cityscapes_runs_folder.get_sut_raw_results(sut.name)):
+                all_paths_exist = False
+        if all_paths_exist:
+            Tester.cityscapes_results = {}
+            # define these so that the eval below has them in scope
+            nan = np.nan
+            float32 = np.float32
+            for sut in Tester.sut_list:
+                with open(cityscapes_runs_folder.get_sut_raw_results(sut.name)) as f:
+                    Tester.cityscapes_results[sut.name] = eval(f.read())
         else:
-            Tester.cityscapes_results = Tester.run_on_cityscapes_benchmark()  # this will run and return, saving for next time
+            # this will run and return, saving for next time
+            Tester.cityscapes_results = Tester.run_on_cityscapes_benchmark()
         if score_threshold is not None:
             Tester.SCORE_THRESHOLD = score_threshold
-        good_files = [Tester.get_base_file(image[0])
-                      for image in Tester.cityscapes_results[Tester.BEST_SUT.name]["perImageScores"]
-                      if Tester.get_score(image) > Tester.SCORE_THRESHOLD]
-        print(good_files)
-        print('found %d good files' % len(good_files))
+        good_files = [Tester.get_base_file(image)
+                      for image, score in Tester.cityscapes_results[Tester.BEST_SUT.name]["perImageScores"].items()
+                      if Tester.get_score(score) > Tester.SCORE_THRESHOLD]
         Tester.cityscapes_mutator = CityscapesMutator(Tester.CITYSCAPES_DATA_ROOT, good_files)
+        for subdir in glob.glob(Tester.working_directory + "/set_*/"):
+            set_num = int(re.search(r'.*set_(\d+)', subdir).group(1))
+            if len(Tester.mutation_folders) > set_num:
+                Tester.mutation_folders.append(MutationFolder(subdir))
+            else:
+                Tester.mutation_folders.insert(set_num, MutationFolder(subdir))
+
+    @staticmethod
+    def get_next_mutation_folder(check_len):
+        for mutation_folder in Tester.mutation_folders:
+            if len(mutation_folder.mutation_map) < check_len:
+                return mutation_folder
+        mutation_folder = MutationFolder(Tester.working_directory + ('set_%d' % len(Tester.mutation_folders)))
+        Tester.mutation_folders.append(mutation_folder)
+        return mutation_folder
 
     @staticmethod
     def get_score(image):
-        return 100.0 * (1.0 - image[1]['nbCorrectPixels'] / image[1]['nbNotIgnoredPixels'])
+        if image['nbNotIgnoredPixels'] == 0:
+            return 0
+        return 100.0 * (1.0 - image['nbCorrectPixels'] / image['nbNotIgnoredPixels'])
 
     @staticmethod
     def get_base_file(long_file: str):
@@ -127,7 +161,7 @@ class Tester:
 
     @staticmethod
     def execute_tests(mutation_folder: MutationFolder, mutation_type: MutationType, arg_dict,
-                      num_tests=600, pool_count=30, compute_metrics=True):
+                      num_tests=600):
         if not Tester._initialized:
             Tester.initialize()
         start_time = time.time()
@@ -136,12 +170,30 @@ class Tester:
         end_time = time.time()
         total_time = end_time - start_time
         time_per = total_time / num_tests
-        print('Generated %d mutations in %0.2f s (%0.2f s/im, ~%0.2f cpus/im)' % (num_tests, total_time,
-                                                                                  time_per, time_per * pool_count))
+        print('Generated %d mutations in %0.2f s (%0.2f s/im, ~%0.2f cpus/im)' %
+              (num_tests, total_time, time_per, time_per * Tester.pool_count))
         # TODO add discriminator here or move it into the create_fuzz_images call
-        Tester.sut_manager.run_suts(mutation_folder)
-        if compute_metrics:
-            Tester.compute_cityscapes_metrics(mutation_folder)
+
+    @staticmethod
+    def run_fuzzer(folders_to_run=10):
+        if not Tester._initialized:
+            Tester.initialize()
+        mutations_to_run = [
+            (MutationType.CHANGE_COLOR, {'semantic_label': 'car'}),
+            (MutationType.ADD_OBJECT, {'semantic_label': 'person'}),
+            (MutationType.ADD_OBJECT, {'semantic_label': 'car'})
+        ]
+        num_per_mutation = 2000
+        for folders_run in range(folders_to_run):
+            mutation_folder = Tester.get_next_mutation_folder(num_per_mutation * len(mutations_to_run))
+            num_already_run = len(mutation_folder.mutation_map)
+            for mutation_type, arg_dict in mutations_to_run:
+                if num_already_run >= num_per_mutation:
+                    num_already_run = max(0, num_already_run - num_per_mutation)
+                    continue
+                Tester.execute_tests(mutation_folder, mutation_type, arg_dict, num_per_mutation - num_already_run)
+            # Tester.sut_manager.run_suts(mutation_folder)
+            # Tester.compute_cityscapes_metrics(mutation_folder)
 
     @staticmethod
     def compute_cityscapes_metrics(mutation_folder: MutationFolder,
@@ -166,7 +218,7 @@ class Tester:
                     mutation_gt_file = mutation_folder.mutations_gt_folder +\
                                        base_img + '_mutation_gt.png'
                     if exclude_high_dnc:
-                        if (base_img in Tester.HIGH_DNC or (len(base_img) > 52 and base_img[37:] in Tester.HIGH_DNC)):
+                        if base_img in Tester.HIGH_DNC or (len(base_img) > 52 and base_img[37:] in Tester.HIGH_DNC):
                             skip_count += 1
                             continue
                         else:
@@ -193,9 +245,10 @@ class Tester:
             human_results.write('All Results:\n')
             for sut in Tester.sut_list:
                 human_results.write('SUT: %s\n' % sut.name)
-                human_results.write(str(results[sut.name]) + '\n\n')
-        with open(mutation_folder.raw_results, 'w') as raw_results:
-            raw_results.write(str(results) + '\n')
+                raw_str = str(results[sut.name])
+                human_results.write(raw_str + '\n\n')
+                with open(mutation_folder.get_sut_raw_results(sut.name), 'w') as raw_results:
+                    raw_results.write(raw_str + '\n')
         return results
 
     @staticmethod
@@ -205,7 +258,7 @@ class Tester:
         return Tester.__cityscapes_runs_folder
 
     @staticmethod
-    def run_on_cityscapes_benchmark():
+    def run_on_cityscapes_benchmark(force_recalc=False):
         mutation_folder = Tester.__get_cityscapes_runs_folder()
         for camera_image in glob.glob(Tester.CITYSCAPES_DATA_ROOT +
                                       "/gtFine_trainvaltest/gtFine/leftImg8bit/**/*_leftImg8bit.png", recursive=True):
@@ -219,16 +272,16 @@ class Tester:
                                       "/gtFine_trainvaltest/gtFine/**/*_gtFine_color.png", recursive=True):
                 short_file = gt_image[gt_image.rfind('/') + 1:-len('_gtFine_color.png')]
                 new_file = mutation_folder.mutations_gt_folder + short_file + '_mutation_gt.png'
-                if not os.path.exists(new_file):
+                if not os.path.exists(new_file) or force_recalc:
                     results.append(pool.apply_async(save_paletted_image, (gt_image, new_file)))
             for res in results:
                 res.wait()
-        Tester.sut_manager.run_suts(mutation_folder)
+        Tester.sut_manager.run_suts(mutation_folder, force_recalc)
         return Tester.compute_cityscapes_metrics(mutation_folder)
 
     @staticmethod
     def visualize_diffs(sut_diffs):
-        bin_count = max([len(sut_diffs[sut.name].values()) for sut in self.sut_list]) // 10
+        bin_count = max([len(sut_diffs[sut.name].values()) for sut in Tester.sut_list]) // 10
         other_bins = None
         for sut in Tester.sut_list:
             diffs = sut_diffs[sut.name]
@@ -334,7 +387,7 @@ class Tester:
 
     @staticmethod
     def diff_image_pair(base_file_name, orig_im, edit_im, ignore_black=False):
-        score, num_pixels, blank_diff, diff = self.compute_differences(orig_im, edit_im, ignore_black)
+        score, num_pixels, blank_diff, diff = Tester.compute_differences(orig_im, edit_im, ignore_black)
         diff_percent = 100 * float(num_pixels) / (orig_im.shape[0] * orig_im.shape[1])
         # txt_image = np.zeros((orig_im.shape[0], orig_im.shape[1], 3), np.uint8)
         Tester.draw_text(blank_diff, [
@@ -372,7 +425,7 @@ def plot_hist_as_line(data, label, bin_count=None, bins=None):
 
 KEY_CLASSES = ['car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle', 'person', 'rider']
 if __name__ == '__main__':
-    Tester.initialize()
+    Tester.run_fuzzer()
     exit()
     # mutation_folder = MutationFolder('/home/adwiii/git/perception_fuzzing/src/images/new_mutation_gt')
     # tester.compute_cityscapes_metrics(mutation_folder)

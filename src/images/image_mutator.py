@@ -77,15 +77,19 @@ class MutationFolder:
         self.base_folder = base_folder
         self.folder = base_folder + 'mutations/'
         self.human_results = base_folder + 'results.txt'
-        self.raw_results = base_folder + 'raw_results.txt'
         self.mutation_logs = base_folder + 'mutation_logs.txt'
         os.makedirs(self.folder, exist_ok=True)
         self.mutations_gt_folder = base_folder + 'mutations_gt/'
         os.makedirs(self.mutations_gt_folder, exist_ok=True)
         self.mutation_map = {}
+        if os.path.exists(self.mutation_logs):
+            self.read_mutations()
 
     def get_sut_folder(self, sut_name: str):
         return '%s%s/' % (self.base_folder, sut_name)
+
+    def get_sut_raw_results(self, sut_name: str):
+        return '%s%s_raw_results.txt' % (self.base_folder, sut_name)
 
     def add_mutation(self, mutation):
         self.mutation_map[mutation.name] = mutation
@@ -97,6 +101,12 @@ class MutationFolder:
             for name, mutation in self.mutation_map.items():
                 f.write('(%s, %s),\n' % (name, str(mutation.params)))
             f.write(']\n')
+
+    def read_mutations(self):
+        with open(self.mutation_logs, 'a') as f:
+            temp = eval(f.read())
+            for name, mutation_params in temp:
+                self.mutation_map[name] = Mutation.from_params(name, mutation_params, self)
 
     def add_all(self, mutations):
         for mutation in mutations:
@@ -438,6 +448,13 @@ class Mutation:
         self.mutation_gt = mutation_gt
         self.params = params
         self.params['mutation_type'] = mutation_type
+
+    @classmethod
+    def from_params(cls, name, mutation_params: dict, mutation_folder: MutationFolder):
+        mutation = cls(Mutation(mutation_type=mutation_params['mutation_type'], orig_image=Image(),
+                                edit_image=Image(), mutation_gt=Image(), name=name))
+        mutation.update_file_names(mutation_folder)
+        return mutation
 
     def update_file_names(self, mutation_folder: MutationFolder):
         for image, postfix in [(self.orig_image, '_orig.png'),
