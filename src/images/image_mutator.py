@@ -70,9 +70,12 @@ class Image:
     def load_image(self):
         self.image = cv2.imread(self.image_file)
 
+    def free_memory(self):
+        self.image = None
+
 
 class MutationFolder:
-    def __init__(self, base_folder):
+    def __init__(self, base_folder, perform_init=True):
         if base_folder[-1] != '/':
             base_folder += '/'
         self.short_name = base_folder[:-1]  # remove trailing slash
@@ -81,12 +84,13 @@ class MutationFolder:
         self.folder = base_folder + 'mutations/'
         self.human_results = base_folder + 'results.txt'
         self.mutation_logs = base_folder + 'mutation_logs.txt'
-        os.makedirs(self.folder, exist_ok=True)
         self.mutations_gt_folder = base_folder + 'mutations_gt/'
-        os.makedirs(self.mutations_gt_folder, exist_ok=True)
         self.mutation_map = {}
-        if os.path.exists(self.mutation_logs):
-            self.read_mutations()
+        if perform_init:
+            os.makedirs(self.folder, exist_ok=True)
+            os.makedirs(self.mutations_gt_folder, exist_ok=True)
+            if os.path.exists(self.mutation_logs):
+                self.read_mutations()
 
     def get_sut_folder(self, sut_name: str):
         return '%s%s/' % (self.base_folder, sut_name)
@@ -116,6 +120,9 @@ class MutationFolder:
     def save_all_images(self):
         for mutation in self.mutation_map.values():
             mutation.save_images()
+
+    def merge_folder(self, mutation_map):
+        self.mutation_map.update(mutation_map)
 
 
 def polygon_area(points):
@@ -471,12 +478,16 @@ class Mutation:
         if mutation_folder.mutations_gt_folder is not None and self.mutation_gt is not None:
             self.mutation_gt.image_file = mutation_folder.mutations_gt_folder + self.name + '_mutation_gt.png'
 
-    def save_images(self, save_orig=False):
+    def save_images(self, save_orig=False, free_mem=False):
         if save_orig:
             self.orig_image.save_image()
         self.edit_image.save_image()
         if self.mutation_gt is not None:
             self.mutation_gt.save_paletted_image()
+        if free_mem:
+            self.orig_image.free_memory()
+            self.edit_image.free_memory()
+            self.mutation_gt.free_memory()
 
 
 class CityscapesGroundTruth:
@@ -659,7 +670,8 @@ class CityscapesMutator:
         lower_left = (mins[0], maxs[1])
         param_map = {
             'bg_id': bg_id,
-            'add_id': add_id
+            'add_id': add_id,
+            'semantic_label': semantic_label
         }
         name = road_poly.json_file[road_poly.json_file.rfind('/') + 1:-21]
         img = self.mutate.add_object(random_car_image, instance_mask, road_img, lower_left, add_shadow=False, rotation=rotation)
@@ -696,7 +708,8 @@ class CityscapesMutator:
             'poly_id': poly_id,
             'color_shift': color_shift,
             'dec_lit': dec_lit,
-            'inc_sat': inc_sat
+            'inc_sat': inc_sat,
+            'semantic_label': semantic_label
         }
         mutation = Mutation(MutationType.CHANGE_COLOR, Image(random_car_image), Image(img), name=name,
                             mutation_gt=Image(city_poly.get_gt_semantics_image()), params=param_map)
@@ -775,13 +788,14 @@ class NuScenesMutator:
         mutate_gt = self.mutate.add_object(all_car, instance_mask, im, car_loc)
         param_map = {
             'bg_id': bg_id,
-            'add_id': add_id
+            'add_id': add_id,
+            'semantic_label': object_class
         }
         mutation = Mutation(MutationType.ADD_OBJECT, Image(img), Image(added_car), Image(mutate_gt), param_map)
         return mutation
 
-    def change_car_color(self):
-        random_car = random.choice(self.get_instances(None, 'vehicle.car'))
+    def change_car_color(self, object_class='vehicle.car'):
+        random_car = random.choice(self.get_instances(None, object_class))
         sample = self.sample_for_object(random_car)
         random_car_image = self.load_image(sample)
         random_car_mask = self.get_instance_mask(random_car)
@@ -795,7 +809,8 @@ class NuScenesMutator:
             'poly_id': random_car,
             'color_shift': color_shift,
             'dec_lit': dec_lit,
-            'inc_sat': inc_sat
+            'inc_sat': inc_sat,
+            'semantic_label': object_class
         }
         mutation = Mutation(MutationType.CHANGE_COLOR, Image(random_car_image), Image(img),
                             Image(self.gt_for_sample(sample)), param_map)
