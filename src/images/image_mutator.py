@@ -1,5 +1,6 @@
 import glob
 import os
+import time
 from collections import defaultdict
 from enum import Enum
 from typing import List, Dict, Any, Tuple, Optional
@@ -25,7 +26,7 @@ from src.images.vanishing_point.vanishing_point_detection import get_vanishing_p
 current_file_path = Path(__file__)
 sys.path.append(str(current_file_path.parent.parent.absolute()) + '/cityscapesScripts')
 from cityscapesscripts.helpers.annotation import Annotation
-from cityscapesscripts.helpers.labels     import name2label, trainId2label
+from cityscapesscripts.helpers.labels     import name2label, trainId2label, id2label
 
 
 class Scene:
@@ -34,7 +35,17 @@ class Scene:
 
 
 class Image:
-    _default_palette_rgb = [trainId2label[id].color if id in trainId2label else (0,0,0) for id in range(256)]
+    _flattening_array = np.array([1, 1 << 8, 1 << 16], dtype=np.uint32)
+    _default_palette_rgb = [trainId2label[id].color if id in trainId2label else (0, 0, 0) for id in range(256)]
+    _default_palette_bgr_flattened = {}
+    for index, color in enumerate(_default_palette_rgb):
+        dot_color = np.dot(np.array([color[2], color[1], color[0]]), _flattening_array)
+        if dot_color not in _default_palette_bgr_flattened:
+            _default_palette_bgr_flattened[dot_color] = index
+    for label in id2label.values():
+        dot_color = np.dot(np.array([label.color[2], label.color[1], label.color[0]]), _flattening_array)
+        if dot_color not in _default_palette_bgr_flattened:
+            _default_palette_bgr_flattened[dot_color] = 19
     _default_palette = [val for rgbs in _default_palette_rgb for val in rgbs]
 
     def __init__(self, image=None, image_file: str = None, read_on_load=False):
@@ -46,22 +57,14 @@ class Image:
     def save_image(self):
         cv2.imwrite(self.image_file, self.image)
 
-    def save_paletted_image(self, palette=None):
-        if palette is None:
-            palette = Image._default_palette
-            rgb_palette = Image._default_palette_rgb
-        else:
-            rgb_palette = [(palette[i], palette[i + 1], palette[i + 2]) for i in range(0, len(palette), 3)]
-        rgb_palette = np.array(rgb_palette)
-
-        rgb_image = cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
-        paletted_image = np.zeros(self.image.shape, dtype=np.uint8)
-        for i in reversed(range(len(rgb_palette))):
-            paletted_image[np.where((rgb_image == rgb_palette[i]).all(axis=2))] = [i, i, i]
-        paletted_image = cv2.cvtColor(paletted_image, cv2.COLOR_RGB2GRAY)
-
+    def save_paletted_image(self):
+        flattened = self.image.reshape((self.image.shape[0] * self.image.shape[1], 3))
+        flattened = np.matmul(flattened, Image._flattening_array)
+        paletted_image = np.array([Image._default_palette_bgr_flattened[flat_color] for flat_color in flattened],
+                                  dtype=np.uint8)
+        paletted_image = paletted_image.reshape((self.image.shape[0], self.image.shape[1]))
         paletted = PILImage.fromarray(paletted_image.astype(np.uint8)).convert('P')
-        paletted.putpalette(palette)
+        paletted.putpalette(Image._default_palette)
         paletted.save(self.image_file)
 
     def load_image(self):
@@ -93,18 +96,16 @@ class MutationFolder:
 
     def add_mutation(self, mutation):
         self.mutation_map[mutation.name] = mutation
-        mutation.update_file_names(self.folder)
+        mutation.update_file_names(self)
 
     def record_mutations(self):
-        with open(self.mutation_logs, 'a') as f:
-            f.write('[\n')
+        with open(self.mutation_logs, 'w') as f:
             for name, mutation in self.mutation_map.items():
-                f.write('(%s, %s),\n' % (name, str(mutation.params)))
-            f.write(']\n')
+                f.write("('%s', %s),\n" % (name, str(mutation.params)))
 
     def read_mutations(self):
-        with open(self.mutation_logs, 'a') as f:
-            temp = eval(f.read())
+        with open(self.mutation_logs, 'r') as f:
+            temp = eval('[' + f.read() + ']')
             for name, mutation_params in temp:
                 self.mutation_map[name] = Mutation.from_params(name, mutation_params, self)
 
@@ -436,6 +437,12 @@ class MutationType(Enum):
     CHANGE_COLOR = 'CHANGE_COLOR'
     ADD_OBJECT = 'ADD_OBJECT'
 
+    def __str__(self):
+        return 'MutationType.' + self.name
+
+    def __repr__(self):
+        return 'MutationType.' + self.name
+
 
 class Mutation:
     def __init__(self, mutation_type: MutationType, orig_image: Image, edit_image: Image, mutation_gt: Image, name=None,
@@ -451,8 +458,8 @@ class Mutation:
 
     @classmethod
     def from_params(cls, name, mutation_params: dict, mutation_folder: MutationFolder):
-        mutation = cls(Mutation(mutation_type=mutation_params['mutation_type'], orig_image=Image(),
-                                edit_image=Image(), mutation_gt=Image(), name=name))
+        mutation = cls(mutation_type=mutation_params['mutation_type'], orig_image=Image(),
+                       edit_image=Image(), mutation_gt=Image(), name=name, params=mutation_params)
         mutation.update_file_names(mutation_folder)
         return mutation
 
@@ -566,7 +573,7 @@ class CityscapesMutator:
         return random.choice(obj_list)
 
     def load_image(self, json_file: str):
-        file = json_file.replace('gtFine/', 'gtFine/leftImg8bit').replace('gtFine_polygons.json', 'leftImg8bit.png')
+        file = json_file.replace('gtFine/', 'gtFine/leftImg8bit/').replace('gtFine_polygons.json', 'leftImg8bit.png')
         img = cv2.imread(file)
         return img
 
@@ -669,11 +676,6 @@ class CityscapesMutator:
         random_car_file = city_poly.json_file
         name = random_car_file[random_car_file.rfind('/')+1:-21]
         random_car_image = self.load_image(random_car_file)
-        # random_car_image = cv2.drawContours(random_car_image, contours=[city_poly.polygon], contourIdx=-1,
-        #                                      color=(255, 0, 0))
-        # cv2.imshow('random_car_image', random_car_image)
-        # print('loaded image')
-        # print(city_poly.poly_id)
         random_car_mask = self.get_instance_mask(city_poly)
         x, y, w, h = self.mutate.mask_bounding_rect(random_car_mask)
         if w < 50 or h < 50:

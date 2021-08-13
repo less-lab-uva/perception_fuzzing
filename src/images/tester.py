@@ -89,6 +89,11 @@ class Tester:
         good_files = [Tester.get_base_file(image)
                       for image, score in Tester.cityscapes_results[Tester.BEST_SUT.name]["perImageScores"].items()
                       if Tester.get_score(score) > Tester.SCORE_THRESHOLD]
+        print('Found %d good files' % len(good_files))
+        with open(Tester.working_directory + 'sut_gt_hist.txt', 'w') as f:
+            f.write(str([Tester.get_score(score)
+                      for image, score in Tester.cityscapes_results[Tester.BEST_SUT.name]["perImageScores"].items()]))
+
         Tester.cityscapes_mutator = CityscapesMutator(Tester.CITYSCAPES_DATA_ROOT, good_files)
         for subdir in glob.glob(Tester.working_directory + "/set_*/"):
             set_num = int(re.search(r'.*set_(\d+)', subdir).group(1))
@@ -122,16 +127,14 @@ class Tester:
         return long_file
 
     @staticmethod
-    def __create_images(folder: MutationFolder, count, start_num, mutation_type: MutationType, arg_dict):
+    def create_images(folder: MutationFolder, count, start_num, mutation_type: MutationType, arg_dict):
         """Generate the specified number of mutations"""
         i = start_num
-        mutations = []
         while i < start_num + count:
             try:
                 mutation = Tester.cityscapes_mutator.apply_mutation(mutation_type, arg_dict)
                 if mutation is not None:
-                    mutations.append(mutation)
-                    mutation.update_file_names(folder)
+                    folder.add_mutation(mutation)
                     mutation.save_images()
                 else:
                     i -= 1  # don't advance if we didn't get a new mutation
@@ -142,18 +145,18 @@ class Tester:
         return 0
 
     @staticmethod
-    def __create_fuzz_images(mutation_folder: MutationFolder, count, mutation_type: MutationType, arg_dict):
+    def create_fuzz_images(mutation_folder: MutationFolder, count, mutation_type: MutationType, arg_dict):
         """Generate mutated images using a thread pool for increased speed"""
         count_per = int(count / Tester.pool_count)
         results = []
         orig_count = count
         if Tester.pool_count == 1:
-            Tester.__create_images(mutation_folder, count, 0, mutation_type, arg_dict)
+            Tester.create_images(mutation_folder, count, 0, mutation_type, arg_dict)
         else:
             with Pool(Tester.pool_count) as pool:
                 while count > 0:
-                    res = pool.apply_async(Tester.__create_images, (mutation_folder, min(count, count_per),
-                                                                   orig_count - count, mutation_type, arg_dict))
+                    res = pool.apply_async(Tester.create_images, (mutation_folder, min(count, count_per),
+                                                                  orig_count - count, mutation_type, arg_dict))
                     results.append(res)
                     count -= count_per
                 for res in results:  # wait for all images to generate
@@ -165,7 +168,7 @@ class Tester:
         if not Tester._initialized:
             Tester.initialize()
         start_time = time.time()
-        Tester.__create_fuzz_images(mutation_folder, num_tests, mutation_type=mutation_type, arg_dict=arg_dict)
+        Tester.create_fuzz_images(mutation_folder, num_tests, mutation_type=mutation_type, arg_dict=arg_dict)
         mutation_folder.record_mutations()
         end_time = time.time()
         total_time = end_time - start_time
@@ -175,7 +178,7 @@ class Tester:
         # TODO add discriminator here or move it into the create_fuzz_images call
 
     @staticmethod
-    def run_fuzzer(folders_to_run=10):
+    def run_fuzzer(folders_to_run=1):
         if not Tester._initialized:
             Tester.initialize()
         mutations_to_run = [
@@ -186,6 +189,7 @@ class Tester:
         num_per_mutation = 2000
         for folders_run in range(folders_to_run):
             mutation_folder = Tester.get_next_mutation_folder(num_per_mutation * len(mutations_to_run))
+            print('Running fuzzing for %s' % mutation_folder.base_folder)
             num_already_run = len(mutation_folder.mutation_map)
             for mutation_type, arg_dict in mutations_to_run:
                 if num_already_run >= num_per_mutation:
@@ -197,14 +201,14 @@ class Tester:
 
     @staticmethod
     def compute_cityscapes_metrics(mutation_folder: MutationFolder,
-                                   exclude_high_dnc=False, quiet=False, pool_count=28):
+                                   exclude_high_dnc=False, quiet=True):
         cityscapes_eval_args = copy.copy(orig_cityscapes_eval_args)
         cityscapes_eval_args.evalPixelAccuracy = True
         cityscapes_eval_args.quiet = quiet
         results = {}
         black_pixel = [0, 0, 0]
         # dnc_count = []
-        with Pool(pool_count) as pool:
+        with Pool(Tester.pool_count) as pool:
             for sut in Tester.sut_list:
                 print('--- Evaluating %s ---' % sut.name)
                 pred_img_list = []
@@ -230,10 +234,14 @@ class Tester:
                     pred_img_list.append(file)
                     gt_img_list.append(mutation_gt_file)
                 print('Skipped %d, kept %d' % (skip_count, len(pred_img_list)))
-                results[sut.name] = pool.apply_async(evaluateImgLists,
-                                                     (pred_img_list, gt_img_list, cityscapes_eval_args))
-            for sut in Tester.sut_list:
-                results[sut.name] = results[sut.name].get()
+                if Tester.pool_count == 1:
+                    results[sut.name] = evaluateImgLists(pred_img_list, gt_img_list, cityscapes_eval_args)
+                else:
+                    results[sut.name] = pool.apply_async(evaluateImgLists,
+                                                        (pred_img_list, gt_img_list, cityscapes_eval_args))
+            if Tester.pool_count > 1:
+                for sut in Tester.sut_list:
+                    results[sut.name] = results[sut.name].get()
         with open(mutation_folder.human_results, 'w') as human_results:
             out = 'Exclude high DNC: ' + str(exclude_high_dnc)
             print(out)
@@ -262,6 +270,8 @@ class Tester:
         mutation_folder = Tester.__get_cityscapes_runs_folder()
         for camera_image in glob.glob(Tester.CITYSCAPES_DATA_ROOT +
                                       "/gtFine_trainvaltest/gtFine/leftImg8bit/**/*_leftImg8bit.png", recursive=True):
+            if 'leftImg8bit/test/' in camera_image:
+                continue
             short_file = camera_image[camera_image.rfind('/') + 1:-len('_leftImg8bit.png')]
             new_file = mutation_folder.folder + short_file + '_edit.png'
             if not os.path.exists(new_file):
@@ -270,6 +280,8 @@ class Tester:
         with Pool(Tester.pool_count) as pool:
             for gt_image in glob.glob(Tester.CITYSCAPES_DATA_ROOT +
                                       "/gtFine_trainvaltest/gtFine/**/*_gtFine_color.png", recursive=True):
+                if 'gtFine/test/' in gt_image:
+                    continue
                 short_file = gt_image[gt_image.rfind('/') + 1:-len('_gtFine_color.png')]
                 new_file = mutation_folder.mutations_gt_folder + short_file + '_mutation_gt.png'
                 if not os.path.exists(new_file) or force_recalc:
