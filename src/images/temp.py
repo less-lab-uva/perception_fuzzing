@@ -2,15 +2,38 @@ import copy
 import itertools
 import math
 import pprint
+import random
+import shutil
 from collections import defaultdict, Counter
 from random import shuffle
+from typing import Callable
 
+import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
 
 from src.images.image_mutator import MutationFolder, Mutation, MutationType
 from src.images.tester import Tester, plot_hist_as_line
+
+
+def mark_image(image_file, folder):
+    img_to_mark = get_image_name(image_file)
+    if folder[-1] != '/':
+        folder += '/'
+    with open(folder[:-1] + '.txt', 'a') as file:
+        file.write('%s\n' % img_to_mark)
+    shutil.copy(image_file, folder + img_to_mark)
+    return folder
+
+
+def show_image(image_file: str, key_handler: dict[int, Callable[[str], str]]):
+    img = cv2.imread(image_file)
+    cv2.imshow('Image', img)
+    key_pressed = -1
+    while key_pressed not in key_handler:
+        key_pressed = cv2.waitKey(0)
+    return key_handler[key_pressed](image_file)
 
 
 def get_type_tuple(mutation_params_map):
@@ -68,8 +91,27 @@ if __name__ == '__main__':
         'nvidia-sdcnet': 'SDCNet',
         'hrnet': 'HRNetV2+OCR'
     }
+    false_positive_map = {}  # map from image name to folder
+    false_positive_folder = Tester.working_directory + 'false_positive/'
+    true_positive_folder = Tester.working_directory + 'true_positive/'
+    maybe_positive_folder = Tester.working_directory + 'maybe_positive/'
+    fp_fols = [false_positive_folder, true_positive_folder, maybe_positive_folder]
+    for fp_fol in fp_fols:
+        with open(fp_fol[:-1] + '.txt', 'r') as pos_file:
+            for line in pos_file.readlines():
+                false_positive_map[get_image_name(line)] = fp_fol
+    key_handler_map = {
+        # W means positive (instead of up since arrow keys are platform dependent)
+        ord('w'): lambda tmp: mark_image(tmp, true_positive_folder),
+        # S means negative (instead of down)
+        ord('s'): lambda tmp: mark_image(tmp, true_positive_folder),
+        # D means "maybe" or "skip" (instead of right)
+        ord('d'): lambda tmp: mark_image(tmp, maybe_positive_folder),
+    }
     folders = []
     image_to_mutation = {}
+    name_to_image_file = {}
+    mutation_list = []
     for i in range(25):
         mut_fol = MutationFolder((Tester.working_directory + "/set_%d/") % i, perform_init=False)
         folders.append(mut_fol)
@@ -80,13 +122,21 @@ if __name__ == '__main__':
                 type_tuple = get_type_tuple(mutation_params)
                 if mutation_type_map[type_tuple] >= max_len[type_tuple]:
                     continue
+                mutation_list.append(tuple(sorted(mutation_params.items())))
                 mutation_type_map[type_tuple] += 1
                 cur_list.append(name)
                 image_to_mutation[name] = type_tuple
+                name_to_image_file[name] = mut_fol.folder + name + '_edit.png'
                 # name_list.append(name)
                 mut_fol.mutation_map[name] = Mutation.from_params(name, mutation_params, mut_fol)
         shuffle(cur_list)
         name_list.extend(cur_list)
+    mutation_set = set(mutation_list)
+    if len(mutation_set) != len(mutation_list):
+        print('Found duplicate mutation')
+        exit()
+    else:
+        print('Found no duplicate mutations')
     shuffled_name_lists = [copy.deepcopy(name_list) for _ in range(5)]
     for ind in range(len(shuffled_name_lists)):
         shuffle(shuffled_name_lists[ind])
@@ -105,7 +155,7 @@ if __name__ == '__main__':
     # MIN_DROP = 0.5
     # SECONDARY_DROP = 2.5
     MIN_DROP = 1
-    SECONDARY_DROP = 10
+    SECONDARY_DROP = 5
     # bins = None
     # bins = np.linspace(MIN_DROP, 4.5, 20)
     # bins = np.linspace(MIN_DROP, 25.5, 25)
@@ -127,6 +177,7 @@ if __name__ == '__main__':
         worst_images_drop[mutation_folder.short_name] = {}
     data_drop_sut = {}
     data_drop_sut_images_primary = {}
+    data_drop_sut_images_primary_less_than_secondary = {}
     data_drop_sut_images_secondary = {}
     name_list_set = frozenset(name_list)
     failure_set = set([])
@@ -149,6 +200,9 @@ if __name__ == '__main__':
                 data_drop_sut_images_primary[sut].append(image_name)
                 if drop >= SECONDARY_DROP:
                     data_drop_sut_images_secondary[sut].append(image_name)
+                else:
+                    data_drop_sut_images_primary_less_than_secondary[sut].append(image_name)
+        print('between primary and secondary', sut, len(data_drop_sut_images_primary_less_than_secondary[sut]))
         # data = [Tester.get_score(image) for image in image_scores.items() if get_image_name(image) in name_list]
         # data_drop = [score_on_training[sut][Tester.get_base_file(image[0])] - Tester.get_score(image)
         #              for image in image_scores.items() if (score_on_training[sut][Tester.get_base_file(image[0])] - Tester.get_score(image)) > MIN_DROP]
@@ -307,6 +361,23 @@ if __name__ == '__main__':
     # Readd legend 1 before showing
     plt.gca().add_artist(legend1)
     plt.show()
+
+    random.seed(8459741097717723050)
+    for sut in suts:
+        for image in data_drop_sut_images_secondary[sut]:
+            image_file = name_to_image_file[image]
+            if image_file in false_positive_map:
+                continue
+            false_positive_map[image_file] = show_image(image_file, key_handler_map)
+    random_sample = 0.1
+    for sut in suts:
+        sample_size = int(round(len(data_drop_sut_images_primary_less_than_secondary[sut])) * random_sample)
+        images = random.sample(data_drop_sut_images_primary_less_than_secondary[sut], sample_size)
+        for image in images:
+            image_file = name_to_image_file[image]
+            if image_file in false_positive_map:
+                continue
+            false_positive_map[image_file] = show_image(image_file, key_handler_map)
 
     # print(worst_images)
     # print(worst_images_drop)
