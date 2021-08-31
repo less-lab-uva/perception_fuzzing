@@ -24,12 +24,12 @@ class EfficientPS(SUTRunner):
         else:
             self.SNAPSHOT_PATH = snapshot_path
 
-        self.base_command = 'nvidia-docker run --ipc=host -v "%s:%s" efficientps-semantic-segmentation ' \
+        self.base_command = 'nvidia-docker run --ipc=host %s efficientps-semantic-segmentation ' \
                             '"pip3 install git+https://github.com/mapillary/inplace_abn.git && ' \
                             'cd %s/efficientNet && python setup.py develop && cd .. && python setup.py develop && ' \
                             'python tools/cityscapes_save_predictions.py ./configs/efficientPS_singlegpu_sample.py ' \
                             '%s INPUT_DIR OUTPUT_DIR && chown -R $(id -u):$(id -g) OUTPUT_DIR"' \
-                            % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, self.EPS_HOME, self.SNAPSHOT_PATH)
+                            % (SUTRunner.DOCKER_VOLUME_STR, self.EPS_HOME, self.SNAPSHOT_PATH)
 
     def _run_semantic_seg(self, folder, dest_folder, verbose=False):
         # temp dir will be automatically cleaned up on exit of the with statement

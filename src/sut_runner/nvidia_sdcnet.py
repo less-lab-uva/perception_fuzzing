@@ -21,10 +21,10 @@ class NVIDIASDCNet(SUTRunner):
         self.SDCNET_HOME = sdcnet_home
         self.SNAPSHOT_PATH = snapshot_path
 
-        self.base_command = 'nvidia-docker run --ipc=host -v "%s:%s" --user "$(id -u):$(id -g)"' \
+        self.base_command = 'nvidia-docker run --ipc=host %s --user "$(id -u):$(id -g)"' \
                             ' nvidia-sdcnet bash -c "cd %s && python demo_folder.py --demo-folder INPUT_DIR' \
                             ' --snapshot %s --save-dir OUTPUT_DIR --color-mask-only"' \
-                            % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, self.SDCNET_HOME, self.SNAPSHOT_PATH)
+                            % (SUTRunner.DOCKER_VOLUME_STR, self.SDCNET_HOME, self.SNAPSHOT_PATH)
 
     def _run_semantic_seg(self, folder, dest_folder, verbose=False):
         # temp dir will be automatically cleaned up on exit of the with statement

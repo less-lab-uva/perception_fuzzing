@@ -41,14 +41,16 @@ class Tester:
     sut_manager = None
     pool_count = None
     _initialized = False
-    SCORE_THRESHOLD = 95 # As a percent out of 100
+    SCORE_THRESHOLD = 95  # As a percent out of 100
     cityscapes_results = None
     __cityscapes_runs_folder = None
-    working_directory = str(current_file_path.parent.parent.absolute()) + '/world_fuzzing/'
-    mutation_folders = []
+    # working_directory = str(current_file_path.parent.parent.absolute()) + '/world_fuzzing/'
+    working_directory = '/data/world_fuzzing/'
+    mutation_folders = None
 
     @staticmethod
-    def initialize(working_directory=None, cityscapes_data_root=None, pool_count=30, score_threshold=None):
+    def initialize(working_directory=None, cityscapes_data_root=None, pool_count=30, score_threshold=None,
+                   load_mut_fols=True):
         Tester._initialized = True
         if working_directory is not None:
             Tester.working_directory = working_directory
@@ -97,12 +99,84 @@ class Tester:
                          Tester.cityscapes_results[Tester.BEST_SUT.name]["perImageScores"].items()]))
 
         Tester.cityscapes_mutator = CityscapesMutator(Tester.CITYSCAPES_DATA_ROOT, good_files)
-        for subdir in glob.glob(Tester.working_directory + "/set_*/"):
-            set_num = int(re.search(r'.*set_(\d+)', subdir).group(1))
-            if len(Tester.mutation_folders) > set_num:
-                Tester.mutation_folders.append(MutationFolder(subdir))
-            else:
-                Tester.mutation_folders.insert(set_num, MutationFolder(subdir))
+        if load_mut_fols:
+            Tester.mutation_folders = [MutationFolder(subdir)
+                                       for subdir in glob.glob(Tester.working_directory + "/set_*/")]
+            Tester.mutation_folders.sort(key=lambda x: int(re.search(r'.*set_(\d+)', x.base_folder).group(1)))
+
+    @staticmethod
+    def compute_scores_vs_baseline(mutation_folders: List[MutationFolder], min_drop=1):
+        if not Tester._initialized:
+            Tester.initialize()
+        score_on_baseline = {}
+        for sut, result_dict in Tester.cityscapes_results.items():
+            image_scores = result_dict["perImageScores"]
+            score_on_baseline[sut] = {Tester.get_base_file(image[0]):
+                                          Tester.get_score(image[1])
+                                      for image in image_scores.items()}
+        # data = []
+        # data_drop = []
+        data_with_images_drop = {}  # list of tuples: (image, score, baseline_score, baseline_score - score)
+        data_with_images_drop_mutation = defaultdict(lambda:[])  # list of tuples: (image, score, baseline_score, baseline_score - score)
+        data_with_images = {}
+        for sut in Tester.sut_list:
+            data_with_images_drop[sut.name] = []
+            data_with_images[sut.name] = []
+        mutation_map = {}
+        for mut_fol in mutation_folders:
+            mutation_map.update(mut_fol.mutation_map)
+            # Tester.sut_manager.run_suts(mut_fol)
+            results = Tester.compute_cityscapes_metrics(mut_fol)
+            for sut, result_dict in results.items():
+                image_scores = result_dict["perImageScores"]
+                # data.extend([Tester.get_score(image) for image in image_scores.items()])
+                # data_drop.extend([score_on_baseline[sut][Tester.get_base_file(image[0])] - Tester.get_score(image)
+                #                   for image in image_scores.items()
+                #                   if (score_on_baseline[sut][Tester.get_base_file(image[0])]
+                #                       - Tester.get_score(image)) > min_drop])
+                data_with_images_drop[sut].extend([(image[0], Tester.get_score(image[1]),
+                                                        score_on_baseline[sut][Tester.get_base_file(image[0])],
+                                                        score_on_baseline[sut][Tester.get_base_file(image[0])]
+                                                        - Tester.get_score(image[1]))
+                                                        for image in image_scores.items()])
+                data_with_images[sut].extend([(image[0], Tester.get_score(image[1]),
+                                                   score_on_baseline[sut][Tester.get_base_file(image[0])],
+                                                   score_on_baseline[sut][Tester.get_base_file(image[0])]
+                                                   - Tester.get_score(image[1]))
+                                                   for image in image_scores.items()])
+                for image in image_scores.items():
+                    name = image[0]
+                    name = name[name.rfind('/')+1:-len('_edit_prediction.png')]
+                    mutation_params = mut_fol.mutation_map[name].params
+                    mutation = (mutation_params['mutation_type'], mutation_params['semantic_label'])
+                    data_with_images_drop_mutation[mutation].append((image[0], Tester.get_score(image[1]),
+                                                        score_on_baseline[sut][Tester.get_base_file(image[0])],
+                                                        score_on_baseline[sut][Tester.get_base_file(image[0])]
+                                                        - Tester.get_score(image[1])))
+        bins = np.linspace(0.5, 25.5, 25)
+        bin_count = 40
+        count_over_min = {}
+        for sut in Tester.sut_list:
+            data_with_images_drop[sut.name].sort(key=lambda x: (x[3], -x[1]), reverse=True)
+            data_with_images[sut.name].sort(key=lambda x: x[1])
+            # plt.xlabel('Percentage point drop in % pixels correct')
+            # plt.ylabel('Log Count of Images')
+            # plt.legend(loc='upper right')
+            # plt.show()
+            over_min = [(item[0], item[3]) for item in data_with_images_drop[sut.name] if item[3] >= min_drop]
+            print(sut.name, len(over_min))
+            count_over_min[sut.name] = (len(over_min), over_min)
+        # print(count_over_min)
+        plot_hist_as_line([[item[3] for item in data_with_images_drop_mutation[mutation]] for mutation in data_with_images_drop_mutation.keys()],
+                          [str(mutation) for mutation in data_with_images_drop_mutation.keys()], bin_count, bins, log=False)
+        plt.xlabel('Percentage point drop in % pixels correct')
+        plt.ylabel('Log Count of Images')
+        plt.legend(loc='upper right')
+        plt.show()
+        # worst_images[mutation_folder.short_name][sut] = data_with_images[:worst_count]
+        # worst_images_drop[mutation_folder.short_name][sut] = data_with_images_drop[:worst_count]
+        # worst_images_for_counts.extend([Tester.get_base_file(item[0]) for item in data_with_images[:worst_count]])
+
 
     @staticmethod
     def get_next_mutation_folder(check_len):
@@ -115,6 +189,8 @@ class Tester:
 
     @staticmethod
     def get_score(image):
+        if type(image) == tuple:
+            image = image[1]
         if image['nbNotIgnoredPixels'] == 0:
             return 0
         return 100.0 * (1.0 - image['nbCorrectPixels'] / image['nbNotIgnoredPixels'])
@@ -186,7 +262,7 @@ class Tester:
         # TODO add discriminator here or move it into the create_fuzz_images call
 
     @staticmethod
-    def run_fuzzer(folders_to_run=10, generate_only=False, num_per_mutation=2000, mutations_to_run=None):
+    def run_fuzzer(folders_to_run=20, generate_only=False, num_per_mutation=2000, mutations_to_run=None):
         if mutations_to_run is None:
             mutations_to_run = [
                 (MutationType.CHANGE_COLOR, {'semantic_label': 'car'}),
@@ -210,11 +286,24 @@ class Tester:
 
     @staticmethod
     def compute_cityscapes_metrics(mutation_folder: MutationFolder,
-                                   exclude_high_dnc=False, quiet=True):
+                                   exclude_high_dnc=False, quiet=True, force_recalc=False):
+        results = {}
+        if not exclude_high_dnc and not force_recalc:
+            all_paths_exist = True
+            for sut in Tester.sut_list:
+                if not os.path.exists(mutation_folder.get_sut_raw_results(sut.name)):
+                    all_paths_exist = False
+            if all_paths_exist:
+                # define these so that the eval below has them in scope
+                nan = np.nan
+                float32 = np.float32
+                for sut in Tester.sut_list:
+                    with open(mutation_folder.get_sut_raw_results(sut.name)) as f:
+                        results[sut.name] = eval(f.read())
+                return results
         cityscapes_eval_args = copy.copy(orig_cityscapes_eval_args)
         cityscapes_eval_args.evalPixelAccuracy = True
         cityscapes_eval_args.quiet = quiet
-        results = {}
         black_pixel = [0, 0, 0]
         # dnc_count = []
         with Pool(Tester.pool_count) as pool:
@@ -436,9 +525,10 @@ def print_distances(polys: List[SemanticPolygon]):
         i += 1
 
 
-def plot_hist_as_line(data, label, bin_count=None, bins=None):
+def plot_hist_as_line(data, label, bin_count=None, bins=None, log=False):
     # https://stackoverflow.com/questions/27872723/is-there-a-clean-way-to-generate-a-line-histogram-chart-in-python
-    n, calced_bins, _ = plt.hist(data, bins=bins if bins is not None else bin_count, histtype='bar', alpha=1, label=label, stacked=True)
+    n, calced_bins, _ = plt.hist(data, bins=bins if bins is not None else bin_count,
+                                 histtype='bar', alpha=1, stacked=True, label=label, log=log)
     # bin_centers = 0.5 * (calced_bins[1:] + calced_bins[:-1])
     # plt.plot(bin_centers, n, label=label)  ## using bin_centers rather than edges
     return n, calced_bins
@@ -446,7 +536,11 @@ def plot_hist_as_line(data, label, bin_count=None, bins=None):
 
 KEY_CLASSES = ['car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle', 'person', 'rider']
 if __name__ == '__main__':
-    Tester.run_fuzzer(generate_only=True)
+    # Tester.run_fuzzer(generate_only=False)
+    Tester.initialize()
+    for mut_fol in Tester.mutation_folders:
+        Tester.sut_manager.run_suts(mut_fol)
+        Tester.compute_cityscapes_metrics(mut_fol)
     exit()
 #     # mutation_folder = MutationFolder('/home/adwiii/git/perception_fuzzing/src/images/new_mutation_gt')
 #     # tester.compute_cityscapes_metrics(mutation_folder)

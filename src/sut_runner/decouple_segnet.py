@@ -24,12 +24,12 @@ class DecoupleSegNet(SUTRunner):
         else:
             self.SNAPSHOT_PATH = snapshot_path
 
-        self.base_command = 'nvidia-docker run --ipc=host -v "%s:%s" --user "$(id -u):$(id -g)" ' \
+        self.base_command = 'nvidia-docker run --ipc=host %s --user "$(id -u):$(id -g)" ' \
                             'decouple-seg-nets-semantic-segmentation bash -c "cd %s && ' \
                             'python demo/demo_folder_decouple.py --demo_folder INPUT_DIR ' \
                             '--snapshot %s --save_dir OUTPUT_DIR ' \
                             '--arch network.gffnets.DeepWV3PlusGFFNet --color-mask-only"' \
-                            % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, self.DECOUPLE_SEGNET_HOME, self.SNAPSHOT_PATH)
+                            % (SUTRunner.DOCKER_VOLUME_STR, self.DECOUPLE_SEGNET_HOME, self.SNAPSHOT_PATH)
 
     def _run_semantic_seg(self, folder, dest_folder, verbose=False):
         # temp dir will be automatically cleaned up on exit of the with statement

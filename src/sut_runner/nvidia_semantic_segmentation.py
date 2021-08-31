@@ -38,9 +38,9 @@ class NVIDIASemSeg(SUTRunner):
         super().__init__("nvidia-semantic-segmentation")
         self.SEMANTIC_SEG_HOME = semseg_home
 
-        self.base_command = 'nvidia-docker run --ipc=host -v "%s:%s" --user "$(id -u):$(id -g)" ' \
+        self.base_command = 'nvidia-docker run --ipc=host %s --user "$(id -u):$(id -g)" ' \
                             'nvidia-semantic-segmentation bash -c "cd %s && python -m runx.runx YML_FILE -i"' \
-                            % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, self.SEMANTIC_SEG_HOME)
+                            % (SUTRunner.DOCKER_VOLUME_STR, self.SEMANTIC_SEG_HOME)
 
     def _run_semantic_seg(self, folder, dest_folder, verbose=False):
         runx_string = NVIDIASemSeg.base_string.replace('IMAGE_FOLDER', folder)

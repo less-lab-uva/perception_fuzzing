@@ -3,17 +3,11 @@ import math
 import os
 import time
 from multiprocessing import Pool
-import random
-
-import cv2
 import torch
 from sklearn.metrics import confusion_matrix, classification_report
 from tensorflow import keras
-from torch.autograd import Variable
 from torch.nn import Linear, ReLU, L1Loss, Sequential, Conv2d, MaxPool2d, Module, Softmax, BatchNorm2d, \
-    Dropout, Sigmoid, CrossEntropyLoss
-from torch.nn.functional import log_softmax
-from torch.optim import Adam, SGD
+    Sigmoid, CrossEntropyLoss
 
 
 from sklearn.model_selection import train_test_split
@@ -28,6 +22,7 @@ SPARSE_LOAD = 2
 AS_GRAY = False
 USE_CUDA = True and torch.cuda.is_available()
 MODEL_PATH = '/home/adwiii/git/perception_fuzzing/src/images/discriminator.model'
+# MODEL_PATH = '/bigtemp/adw8dm/discriminator.model'
 
 
 class Net(Module):
@@ -105,9 +100,11 @@ class DatasetGenerator(keras.utils.Sequence):
         self.y = []
         self.img_map = {}
         for img_file in glob.glob("/home/adwiii/git/perception_fuzzing/src/images/fri_*/mutations/*_edit.png"):
+        # for img_file in glob.glob("/bigtemp/adw8dm/disc_training/**/*_edit.png"):
             self.x.append(img_file)
             self.y.append(1)  # edit class is 1
         for img_file in glob.glob("/home/adwiii/data/cityscapes/sut_gt_testing/mutations/*.png"):
+        # for img_file in glob.glob("/bigtemp/adw8dm/cityscapes/leftImg8bit/**/*.png"):
             self.x.append(img_file)
             self.y.append(0)  # orig class is 0m
         if shuffle:
@@ -115,17 +112,17 @@ class DatasetGenerator(keras.utils.Sequence):
             self.x = [self.x[index] for index in shuffler]
             self.y = [self.y[index] for index in shuffler]
 
-        with Pool(28) as pool:
-            results = {}
-            for count, img_file in enumerate(self.x):
-                # only half fit in RAM, load every other one so that it is balanced
-                # in how long each batch takes to load later on
-                if count % 2 == 0:  # TODO: figure out actual logic to compute that
-                    results[img_file] = pool.apply_async(load_image, (img_file,))
-            for img_file, res in results.items():
-                print('loaded', img_file)
-                image = res.get()
-                self.img_map[img_file] = image
+        # with Pool(28) as pool:
+        #     results = {}
+        #     for count, img_file in enumerate(self.x):
+        #         # only half fit in RAM, load every other one so that it is balanced
+        #         # in how long each batch takes to load later on
+        #         if count % 2 == 0:  # TODO: figure out actual logic to compute that
+        #             results[img_file] = pool.apply_async(load_image, (img_file,))
+        #     for img_file, res in results.items():
+        #         print('loaded', img_file)
+        #         image = res.get()
+        #         self.img_map[img_file] = image
 
     def __len__(self):
         return math.ceil(len(self.x) / self.batch_size)
@@ -213,7 +210,10 @@ class CityscapesDiscriminator:
                     continue  # don't include the ones that were not edits
                 f.write(str(base_edit) + '\n')
 
-    def train(self, data_root):
+    def train(self):
+        if torch.cuda.device_count() > 1:
+            print("Multi-GPU Enabled")
+            self.model = torch.nn.DataParallel(self.model)
         generator = DatasetGenerator()
         num_batches = len(generator)
 
@@ -297,12 +297,15 @@ if __name__ == '__main__':
     #     print('value', orig[x].cpu().detach().numpy() == loaded[y].cpu().detach().numpy())
     # exit()
     discriminator = CityscapesDiscriminator()
+    if torch.cuda.device_count() > 1 or True:
+        print("Multi-GPU Enabled")
+        discriminator.model = torch.nn.DataParallel(discriminator.model)
     if os.path.exists(MODEL_PATH):
-        print('model found, skipping training')
+        print('model found')
         discriminator.load_state_dict(torch.load(MODEL_PATH))
     # else:
     #     print('no model found, starting training')
-    # discriminator.train('/home/adwiii/data/cityscapes')
+    # discriminator.train()
     discriminator.model = discriminator.model.cuda()
     print('starting evaluation')
     discriminator.evaluate()

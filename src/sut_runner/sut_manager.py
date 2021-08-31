@@ -10,6 +10,7 @@ class SUTManager:
         self.suts = suts
 
     def run_suts(self, mutation_folder: MutationFolder, force_recalc=False):
+        print('Running SUTs for', mutation_folder.base_folder)
         if force_recalc:
             suts_to_run = [sut.name for sut in self.suts]
         else:

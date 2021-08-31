@@ -31,13 +31,13 @@ class HRNet(SUTRunner):
         self.INPUT_BASE_PATH = self.HRNet_HOME + '/data/cityscapes'
         self.OUTPUT_PATH = self.HRNet_HOME + '/output/cityscapes'
 
-        self.base_command = 'nvidia-docker run --ipc=host -v "%s:%s" --user "$(id -u):$(id -g)" ' \
+        self.base_command = 'nvidia-docker run --ipc=host %s --user "$(id -u):$(id -g)" ' \
                             'hrnet-semantic-segmentation bash -c "cd %s && python tools/test.py ' \
                             '--cfg experiments/cityscapes/' \
                             'seg_hrnet_w48_train_512x1024_sgd_lr1e-2_wd5e-4_bs_12_epoch484.yaml ' \
                             'DATASET.TEST_SET INPUT_LIST OUTPUT_DIR OUTPUT_DIR_TO_REPLACE ' \
                             'TEST.MODEL_FILE %s TEST.FLIP_TEST False"' \
-                            % (SUTRunner.HOME_DIR, SUTRunner.HOME_DIR, self.HRNet_HOME, self.SNAPSHOT_PATH)
+                            % (SUTRunner.DOCKER_VOLUME_STR, self.HRNet_HOME, self.SNAPSHOT_PATH)
 
     def _run_semantic_seg(self, folder, dest_folder, verbose=False):
         # temp dir will be automatically cleaned up on exit of the with statement
