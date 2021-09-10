@@ -516,7 +516,7 @@ class CityscapesMutator:
     COLOR_TO_ID = {(label.color[2], label.color[1], label.color[0]): label.name
                    for label in name2label.values() if label.id != -1 and label.trainId != 255}
 
-    def __init__(self, data_root, good_files=None):
+    def __init__(self, data_root, good_files=None, blurred=False):
         self.data_root = data_root
         self.mutate = ImageMutator()
         self.label_mapping: Dict[str, List[CityscapesPolygon]] = defaultdict(lambda: [])
@@ -524,7 +524,11 @@ class CityscapesMutator:
         self.poly_id_mapping: Dict[str, CityscapesPolygon] = {}
         self.short_file_mapping: Dict[str, str] = {}
         self.good_files = good_files
+        self.blurred = False
         self.build_image_dict()
+
+    def get_mutation_type(self, name):
+        return MutationType[name]
 
     def apply_mutation(self, mutation_type: MutationType, arg_dict):
         if mutation_type == MutationType.CHANGE_COLOR:
@@ -585,6 +589,10 @@ class CityscapesMutator:
 
     def load_image(self, json_file: str):
         file = json_file.replace('gtFine/', 'gtFine/leftImg8bit/').replace('gtFine_polygons.json', 'leftImg8bit.png')
+        if self.blurred:
+            # replace the path so that we load blurred images only
+            file = file.replace('gtFine_trainvaltest/gtFine/leftImg8bit', 'leftImg8bit_blurred/leftImg8bit_blurred/')\
+                       .replace('leftImg8bit.png', 'leftImg8bit_blurred.jpg')
         img = cv2.imread(file)
         return img
 
@@ -682,7 +690,7 @@ class CityscapesMutator:
                             mutation_gt=Image(mutation_gt), params=param_map)
         return mutation
 
-    def change_instance_color(self, semantic_label='car', poly_id=None):
+    def change_instance_color(self, semantic_label='car', poly_id=None, color_shift=None, dec_lit=None, inc_sat=None):
         city_poly = self.get_random_instance(semantic_label) if poly_id is None else self.poly_id_mapping[poly_id]
         poly_id = city_poly.poly_id
         random_car_file = city_poly.json_file
@@ -695,13 +703,14 @@ class CityscapesMutator:
         # print('found bounding rect')
         random_car_isolated = self.mutate.get_isolated(random_car_image, random_car_mask)
         # print('isolated car')
-        random_car_colored, color_shift, dec_lit, inc_sat = self.mutate.change_car_color(random_car_isolated)
+        random_car_colored, color_shift, dec_lit, inc_sat = self.mutate.change_car_color(random_car_isolated,
+                                                                                         color_shift, dec_lit, inc_sat)
         # cv2.imshow('isolate', random_car_colored)
         # cv2.waitKey()
         # print('re-colored car')
         img = self.mutate.add_isolated_object(random_car_colored, random_car_image, (x, y+h), random_car_mask)
-        # cv2.imshow('orig', cv2.resize(random_car_isolated, (512, 288)))
-        # cv2.imshow('color', cv2.resize(img, (512, 288)))
+        # cv2.imshow('orig', random_car_image)
+        # cv2.imshow('color', img)
         # cv2.waitKey()
         # print('returning mutation')
         param_map = {
@@ -997,9 +1006,10 @@ class ImageMutator:
             dest = dest_shadowed
             # cv2.waitKey()
         result = self.add_isolated_object(isolated_addition, dest, dest_loc, src_mask)
-        # cv2.imshow('src', src)
         # cv2.imshow('added', result)
-        # cv2.waitKey()
+        # cv2.imshow('src', src)
+        # cv2.imshow('isolated', isolated_addition)
+        cv2.waitKey()
 
         return result
 
