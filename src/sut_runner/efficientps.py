@@ -15,7 +15,9 @@ def copy_output(dest_folder, temp_name):
 
 
 class EfficientPS(SUTRunner):
-
+    """Class for running EfficientPS. Actual code for docker container from:
+        https://github.com/less-lab-uva/EfficientPS
+    """
     def __init__(self, eps_home, snapshot_path=None):
         super().__init__('efficientps')
         self.EPS_HOME = eps_home

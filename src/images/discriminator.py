@@ -1,3 +1,7 @@
+"""
+PyTorch implementation of the Discriminator Model discussed in Section 4.4.4 of the paper. This was deprecated in favor
+of the Keras implementation.
+"""
 import glob
 import math
 import os

@@ -1,3 +1,6 @@
+"""
+Script that runs the timing tests described in Table 3 in Section 6.4 of the paper.
+"""
 import itertools
 import tempfile
 from collections import defaultdict, Counter

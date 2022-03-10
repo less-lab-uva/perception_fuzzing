@@ -18,7 +18,9 @@ def copy_output(dest_folder, temp_name):
 
 
 class HRNet(SUTRunner):
-
+    """Class for running EfficientPS. Actual code for docker container from:
+        https://github.com/less-lab-uva/HRNet-Semantic-Segmentation
+    """
     def __init__(self, hrnet_home, snapshot_path=None):
         super().__init__('hrnet')
         self.HRNet_HOME = hrnet_home

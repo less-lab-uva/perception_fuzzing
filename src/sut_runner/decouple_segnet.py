@@ -15,7 +15,9 @@ def copy_output(dest_folder, temp_name):
 
 
 class DecoupleSegNet(SUTRunner):
-
+    """Class for running DecoupleSegNet. Actual code for docker container from:
+        https://github.com/less-lab-uva/DecoupleSegNets
+    """
     def __init__(self, decouple_segnet_home, snapshot_path=None):
         super().__init__('decouple_segnet')
         self.DECOUPLE_SEGNET_HOME = decouple_segnet_home

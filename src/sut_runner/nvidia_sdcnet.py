@@ -15,7 +15,9 @@ def copy_output(dest_folder, temp_name):
 
 
 class NVIDIASDCNet(SUTRunner):
-
+    """Class for running NVIDIASDCNet. Actual code for docker container from:
+        https://github.com/less-lab-uva/semantic-segmentation/tree/sdcnet
+    """
     def __init__(self, sdcnet_home, snapshot_path=None):
         super().__init__('nvidia-sdcnet')
         self.SDCNET_HOME = sdcnet_home

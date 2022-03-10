@@ -9,6 +9,9 @@ from src.sut_runner.sut_runner import SUTRunner
 
 
 class NVIDIASemSeg(SUTRunner):
+    """Class for running NVIDIASemanticSegmentation. Actual code for docker container from:
+        https://github.com/NVIDIA/semantic-segmentation/tree/7726b14
+    """
     base_string = '''
     # Run Evaluation and Dump Images on Cityscapes with a pretrained model
     

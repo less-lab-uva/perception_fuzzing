@@ -1,3 +1,10 @@
+"""
+Keras implementation of the Discriminator Model discussed in Section 4.4.4 of the paper. Used during exploration of the
+idea of using a discriminator to determine conformity of mutations. This implementation was able to produce reasonable
+precision and recall based on whether the images used during training were from the original dataset or mutated, but
+this performance did not translate to conformity as judged by a human. Additional research and experimentation is
+required. We suspect that additional data is required along with human labels for conformity to use in training.
+"""
 import glob
 
 import tensorflow as tf
