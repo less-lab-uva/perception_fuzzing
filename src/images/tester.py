@@ -249,6 +249,14 @@ class Tester:
     @staticmethod
     def execute_tests(mutation_folder: MutationFolder, mutation_type: MutationType, arg_dict,
                       num_tests=600):
+        """
+        Create the test cases of the specified type for the specified folder.
+        :param mutation_folder: The MutationFolder to use
+        :param mutation_type: The MutationType to instantiate
+        :param arg_dict: The base arguments for any Mutations
+        :param num_tests: The number of tests to create. Default 600
+        :return:
+        """
         if not Tester._initialized:
             Tester.initialize()
         start_time = time.time()
@@ -263,6 +271,20 @@ class Tester:
 
     @staticmethod
     def run_fuzzer(folders_to_run=20, generate_only=False, num_per_mutation=2000, mutations_to_run=None):
+        """
+        Runs the Fuzzer for the specified amount. Total number of mutations created is:
+         num_per_mutation * len(mutations_to_run) * folders_to_run
+        :param folders_to_run: The number of MutationFolders to generate. Default 20
+        :param generate_only: If True, do not run the SUTs, only create the mutations. Default False
+        :param num_per_mutation: The number of each mutation to run for MutationFolder.  Default 2000
+        :param mutations_to_run: List of tuples of (MutationType, dict of parameters) pairs to run. Default:
+            [
+                (MutationType.CHANGE_COLOR, {'semantic_label': 'car'}),
+                (MutationType.ADD_OBJECT, {'semantic_label': 'person'}),
+                (MutationType.ADD_OBJECT, {'semantic_label': 'car'})
+            ]
+        :return: None
+        """
         if mutations_to_run is None:
             mutations_to_run = [
                 (MutationType.CHANGE_COLOR, {'semantic_label': 'car'}),
@@ -287,6 +309,13 @@ class Tester:
     @staticmethod
     def compute_cityscapes_metrics(mutation_folder: MutationFolder,
                                    exclude_high_dnc=False, quiet=True, force_recalc=False):
+        """Compute the Cityscapes metric of SUT performance on the given MutationFolder.
+
+        If metrics have already been calculated, do not recalculate unless force_recalc is True.
+
+        If exclude_high_dnc is True, images on which the SUT predicted more than 200000 pixels (~14%) as DNC
+          are removed from consideration. Default False.
+        """
         results = {}
         if not exclude_high_dnc and not force_recalc:
             all_paths_exist = True
@@ -359,12 +388,18 @@ class Tester:
 
     @staticmethod
     def __get_cityscapes_runs_folder():
+        """Location to save the SUT performance on the Cityscapes benchmark"""
         if Tester.__cityscapes_runs_folder is None:
             Tester.__cityscapes_runs_folder = MutationFolder(Tester.CITYSCAPES_DATA_ROOT + '/sut_gt_testing')
         return Tester.__cityscapes_runs_folder
 
     @staticmethod
     def run_on_cityscapes_benchmark(force_recalc=False):
+        """This ensures that the SUTs have been run on the Cityscapes benchmark
+
+        If there is no prior save data or force_recalc is True, the SUTs are run on the benchmark.
+
+        Returns the output of compute_cityscapes_metrics run on the folder containing the benchmark results."""
         mutation_folder = Tester.__get_cityscapes_runs_folder()
         for camera_image in glob.glob(Tester.CITYSCAPES_DATA_ROOT +
                                       "/gtFine_trainvaltest/gtFine/leftImg8bit/**/*_leftImg8bit.png", recursive=True):
@@ -391,6 +426,7 @@ class Tester:
 
     @staticmethod
     def visualize_diffs(sut_diffs):
+        """Helper method to plot a histogram of the count of inconsistencies found by the SUTs"""
         bin_count = max([len(sut_diffs[sut.name].values()) for sut in Tester.sut_list]) // 10
         other_bins = None
         for sut in Tester.sut_list:
@@ -409,6 +445,7 @@ class Tester:
 
     @staticmethod
     def compute_differences(truth, predicted, ignore_black=False):
+        """This method is no longer used but was explored prior to adopting the Cityscapes difference metric."""
         # https://stackoverflow.com/questions/56183201/detect-and-visualize-differences-between-two-images-with-opencv-python
         truth_gray = cv2.cvtColor(truth, cv2.COLOR_BGR2GRAY)
         predicted_gray = cv2.cvtColor(predicted, cv2.COLOR_BGR2GRAY)
@@ -426,6 +463,7 @@ class Tester:
 
     @staticmethod
     def draw_text(image, text_list, start_x=10, start_y=20):
+        """Helper method to draw text on an image. Useful when investigating SUT/mutation performance"""
         font = cv2.FONT_HERSHEY_SIMPLEX
         fontScale = 1.5
         fontColor = (255, 0, 255)
@@ -441,6 +479,7 @@ class Tester:
 
     @staticmethod
     def visualize_folder(mutation_folder):
+        """Helper method to visualize what parts of images were misclassified by an SUT from mutation"""
         orig_file_suffix = '_orig.png'
         orig_predicted_file_suffix = '_orig_prediction.png'
         edit_file_suffix = '_edit.png'
@@ -464,6 +503,7 @@ class Tester:
 
     @staticmethod
     def visualize_plain_folder(folder):
+        """Helper method to visualize what parts of images were misclassified by an SUT"""
         orig_file_suffix = '_orig.png'
         orig_predicted_file_suffix = '_orig_prediction.png'
         edit_file_suffix = '_edit.png'
@@ -497,6 +537,7 @@ class Tester:
 
     @staticmethod
     def diff_image_pair(base_file_name, orig_im, edit_im, ignore_black=False):
+        """This method is unused. Prior to the adoption of the Cityscapes metric, it was explored as a diff metric."""
         score, num_pixels, blank_diff, diff = Tester.compute_differences(orig_im, edit_im, ignore_black)
         diff_percent = 100 * float(num_pixels) / (orig_im.shape[0] * orig_im.shape[1])
         # txt_image = np.zeros((orig_im.shape[0], orig_im.shape[1], 3), np.uint8)
