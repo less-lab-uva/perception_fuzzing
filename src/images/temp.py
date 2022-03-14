@@ -1,3 +1,4 @@
+"""Helper file for generating scripts used in the paper."""
 import copy
 import itertools
 import math
