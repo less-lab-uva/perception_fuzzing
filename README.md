@@ -1,7 +1,24 @@
 # Semantic Image Fuzzing of AI Perception Systems
 This repository contains code and high level algorithm descriptions for the paper 
-Semantic Image Fuzzing of AI Perception Systems (ICSE '22).
+[Semantic Image Fuzzing of AI Perception Systems (ICSE '22)](Semantic%20Image%20Fuzzing%20of%20AI%20Perception%20Systems.pdf).
 
+
+## Setting up the codebase
+1. Clone this repository
+2. Initialize and update the git submodules in the root of the repository. This sets up the [Cityscapes scripts dependency](https://github.com/less-lab-uva/cityscapesScripts). This can be done by:
+```
+git submodule init
+git submodule update
+```
+3. Add the root folder of the project to the Python path. On Linux this can be done by:
+```
+export PYTHONPATH=$PYTHONPATH:$(pwd) 
+```
+4. Download the [Cityscapes dataset](https://www.cityscapes-dataset.com/). See [this document](CityscapesSetup.md) for more information.
+5. Set up the Systems Under Test (SUTs) that you intend to test with the system. For information on the five SUTs used in the study, please see the [study data README](study_data/README.md).
+
+
+## Repository Status
 The repository is currently undergoing edits to improve readability and reproducability. 
 This page will be updated as these additions are made. The starting point for the code is the 
 [tester.py](src/images/tester.py) script. There are currently several hard-coded file paths 

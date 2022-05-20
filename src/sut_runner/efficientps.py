@@ -53,7 +53,3 @@ class EfficientPS(SUTRunner):
                 SUTRunner._run_docker(command, verbose)
                 copy_output(dest_folder, temp_folder)
                 os.unlink(symlink)
-
-
-if __name__ == '__main__':
-    EfficientPS('/home/adwiii/git/EfficientPS').run_semantic_seg('/home/adwiii/git/perception_fuzzing/src/images/add_car_check_perspective', SUTRunner.TEMP_DIR + '/eps_out')

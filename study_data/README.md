@@ -6,6 +6,15 @@ The mutations were carried out in batches of 6000 with 2000 each of the differen
 The `all_mutation_logs` folder contains 25 files, each with 6000 mutation parameters that describe each of the mutations produced.
 Together, these 25 files provide the full parameters needed to generate the 150,000 mutations from the study.
 
+## Running the SUTs
+To study the utility of *semImFuzz* to test perception systems, we set up the five best performing systems on the [Cityscapes Benchmark](https://www.cityscapes-dataset.com/benchmarks/#scene-labeling-task) that provided code and model data at the time of the study. The leaderboard is constantly changing, and there may be newer SUTs available.
+
+To facilitate recreation, we forked the five repositories and updated the code so that it could be containerized in Docker and tested. Each of the repositories linked below has its own README with instructions to download the model weights and build the docker container.
+1. NVIDIASemSeg: https://github.com/less-lab-uva/semantic-segmentation/tree/7726b14
+2. EfficientPS: https://github.com/less-lab-uva/EfficientPS
+3. DecoupleSegNets: https://github.com/less-lab-uva/DecoupleSegNets
+4. SDCNet: https://github.com/less-lab-uva/semantic-segmentation/tree/sdcnet
+5. HRNetV2+OCR: https://github.com/less-lab-uva/HRNet-Semantic-Segmentation
 
 ## Examining False Positivity Rates
 Information on the false positivity study carried out for the paper can be found in the [false_positive_report](false_positive_report) folder.

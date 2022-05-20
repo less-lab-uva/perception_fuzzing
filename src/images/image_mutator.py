@@ -6,16 +6,13 @@ from enum import Enum
 from typing import List, Dict, Any, Tuple, Optional
 
 import PIL.ImagePalette
-from nuimages import NuImages
 import cv2
 import matplotlib.pyplot as plt
 import sys
 import scipy
 import numpy as np
-# from sympy import Polygon, Point
 import random
 import uuid
-from nuimages.utils.utils import annotation_name, mask_decode, get_font, name_to_index_mapping
 import tempfile  # used for ipc with deepfill
 import json
 from pathlib import Path
@@ -233,9 +230,6 @@ class ImageSemantics:
     def __init__(self, image: Image, color_to_ids=None, key_classes=None):
         self.reduction = (4, 4)
         self.image = cv2.resize(image.image, (image.image.shape[1] // self.reduction[1], image.image.shape[0] // self.reduction[0]), interpolation=cv2.INTER_NEAREST_EXACT)
-        # cv2.imshow('orig', image.image)
-        # cv2.imshow('smaller', self.image)
-        # cv2.waitKey()
         self.polygons = []
         if color_to_ids is None:
             self.color_to_ids = {}
@@ -266,14 +260,6 @@ class ImageSemantics:
             # convert to gray scale for cv2 find contours
             color_mask = cv2.cvtColor(color_mask, cv2.COLOR_BGR2GRAY)
             unblurred = color_mask
-            # with /1 /1 res:
-            # with (15, 15) blur: {0: 1960, 1: 32, 3: 5, 2: 3}
-            # with /4 /4 res:
-            # with (15,15) blur: {0: 1989, 1: 11}
-            # with (7,7) blur: {0: 1974, 1: 11, 3: 15}
-            # with (5,5) blur: {0: 1982, 1: 11, 3: 7}
-            # with (3,3) blur: {0: 1981, 1: 9, 3: 10}
-            # without blur     {0: 1982, 1: 11, 3: 7}
             color_mask = cv2.blur(color_mask, (7, 7))
             pre_thresh = color_mask
             _, color_mask = cv2.threshold(color_mask, 40, 255, cv2.THRESH_BINARY)
@@ -555,8 +541,6 @@ class CityscapesMutator:
                         if 'deleted' in semantic_label:
                             continue
                         label = semantic_label['label']
-                        # if label.endswith('group'):
-                        #     continue
                         if (label not in name2label) and label.endswith('group'):
                             label = label[:-len('group')]
                         if label not in name2label or name2label[label].id == -1:
@@ -608,8 +592,6 @@ class CityscapesMutator:
             road_mask = self.get_instance_mask(road_poly)
             if road_mask is None:
                 return None
-        # print('loaded road', road_poly.poly_id)
-        # print('road mask', road_mask.shape)
         road_img = self.load_image(road_poly.json_file)
         road_vanishing_point = get_vanishing_point(road_img)
         if add_id is not None:
@@ -649,7 +631,11 @@ class CityscapesMutator:
                 maxs = np.amax(car_polygon, axis=0)
                 # if the mask is white here then we are on the road
                 if road_mask[max(0, min(maxs[1], road_mask.shape[0])), max(0, min(mins[0], road_mask.shape[1]))] == 255:
-                    # if the lower left of the car bounding box is in the road, then we will check other cars
+                    # The below commented out if statement checks
+                    # to see if the lower left of the car bounding box is in the road, then we will check other cars
+                    # NOTE: this was not used in the study because it was determined to be overly aggressive at
+                    # preventing mutations that would otherwise be acceptable. This is because pixel overlap is not
+                    # sufficient for determining physical overlap.
                     # if not polygon_intersects([poly.polygon for poly in self.get_polys_for_image(road_poly, ['car'])], car_poly.polygon):
 
                     # check that the underlying area has a similar brightness to the car that we are going to insert
@@ -659,20 +645,6 @@ class CityscapesMutator:
                         car_vanishing_point = get_vanishing_point(random_car_image)
                         if car_vanishing_point == road_vanishing_point:
                             found = True
-                #         else:
-                #             # if road_vanishing_point is None:
-                #             #     cv2.imshow('none road', road_img)
-                #             #     cv2.waitKey()
-                #             # if car_vanishing_point is None:
-                #             #     cv2.imshow('none car', random_car_image)
-                #             #     cv2.waitKey()
-                #             print('found diff vp', road_vanishing_point, car_vanishing_point)
-                # else:
-                #     print('not on road')
-            # if found:
-            #     print('found good car')
-            # else:
-            #     return None
             if not found:
                 return None
         lower_left = (mins[0], maxs[1])
@@ -700,19 +672,10 @@ class CityscapesMutator:
         x, y, w, h = self.mutate.mask_bounding_rect(random_car_mask)
         if w < 50 or h < 50:
             return None
-        # print('found bounding rect')
         random_car_isolated = self.mutate.get_isolated(random_car_image, random_car_mask)
-        # print('isolated car')
         random_car_colored, color_shift, dec_lit, inc_sat = self.mutate.change_car_color(random_car_isolated,
                                                                                          color_shift, dec_lit, inc_sat)
-        # cv2.imshow('isolate', random_car_colored)
-        # cv2.waitKey()
-        # print('re-colored car')
         img = self.mutate.add_isolated_object(random_car_colored, random_car_image, (x, y+h), random_car_mask)
-        # cv2.imshow('orig', random_car_image)
-        # cv2.imshow('color', img)
-        # cv2.waitKey()
-        # print('returning mutation')
         param_map = {
             'poly_id': poly_id,
             'color_shift': color_shift,
@@ -730,162 +693,22 @@ class CityscapesMutator:
         blank = np.zeros((CityscapesMutator.IMAGE_HEIGHT, CityscapesMutator.IMAGE_WIDTH, 1), np.uint8)
         orig_poly = cv2.fillPoly(blank, pts=[polygon], color=color)
         mask = np.copy(orig_poly)
-        # cv2.imshow('polygon orig', mask)
         if filter_in_front:
             other_polys = np.zeros((CityscapesMutator.IMAGE_HEIGHT, CityscapesMutator.IMAGE_WIDTH, 1), np.uint8)
-            # other_polys_color = np.zeros((CityscapesMutator.IMAGE_HEIGHT, CityscapesMutator.IMAGE_WIDTH, 3), np.uint8)
             other_list = self.file_mapping[city_poly.json_file]
             for other_poly in other_list:
-                # if other_poly.poly_id == city_poly.poly_id:
-                #     continue
                 if other_poly.order <= city_poly.order:  # skip ourselves and anyone behind us
                     continue
-                # other_polys_color = cv2.fillPoly(other_polys_color, pts=[other_poly.polygon],
-                #                                  color=name2label[other_poly.label].color)
-                # other_polys_color = cv2.drawContours(other_polys_color, contours=[other_poly.polygon],
-                #                                      contourIdx=-1,
-                #                                      color=(255, 255, 255))
                 other_polys = cv2.fillPoly(other_polys, pts=[other_poly.polygon], color=color)
-            # other_polys_color = cv2.drawContours(other_polys_color, contours=[city_poly.polygon], contourIdx=-1, color=(255, 0, 0))
-            # cv2.imshow('other polys', other_polys)
-            # cv2.imshow('other polys color', cv2.cvtColor(other_polys_color, cv2.COLOR_RGB2BGR))
             # if we are occluded by anything in front of us, take that out of our poly
             mask[np.where((other_polys == 255).all(axis=2))] = 0
             if np.count_nonzero(mask) == 0:
                 if return_other_polys:
                     return None, None, None
                 return None  # the object we are looking for is entirely occluded, no use in continuing
-        # print(polygon)
-        # cv2.imshow('polygon remove others', mask)
-        # cv2.waitKey()
         if return_other_polys:
             return mask, orig_poly, other_polys
         return mask
-
-
-
-class NuScenesMutator:
-    OBJECT_TABLE = 'object_ann'
-    SURFACE_TABLE = 'surface_ann'
-
-    def __init__(self, data_root, dataset):
-        self.data_root = data_root
-        self.nuim = NuImages(dataroot=data_root, version=dataset, verbose=False, lazy=True)
-        self.mutate = ImageMutator()
-
-    def random_obj_to_random_image(self, object_class='vehicle.car'):
-        random_road = random.choice(self.get_instances(None, 'flat.driveable_surface'))
-        random_road_sample = self.sample_for_surface(random_road)
-        img = self.load_image(random_road_sample)
-        car_loc = self.get_random_road_location(random_road_sample)
-        obj_list = [object_class if not isinstance(object_class, list) else object_class]
-        add_id = random.choice(self.get_instances(None, obj_list))
-        bg_id = self.sample_for_object(add_id)
-        random_car_image = self.load_image(bg_id)
-        instance_mask = self.get_instance_mask(add_id)
-        while instance_mask is None or not self.mutate.is_contiguous(instance_mask) or not self.mutate.is_larger_than(instance_mask, (100, 100), both=False):
-            add_id = random.choice(self.get_instances(None, obj_list))
-            random_car_image = self.load_image(self.sample_for_object(add_id))
-            instance_mask = self.get_instance_mask(add_id)
-        added_car = self.mutate.add_object(random_car_image, instance_mask, img, car_loc)
-
-        orig_prediction = self.gt_for_sample(random_road_sample)
-        im = np.copy(orig_prediction)
-        all_car = np.copy(orig_prediction)
-        total = max(all_car.shape[0], all_car.shape[1])
-        all_car = cv2.rectangle(all_car, (0, 0), (total, total), (142, 0, 0), -1)  # this is the color of car in cityscapes (in BGR here)
-        mutate_gt = self.mutate.add_object(all_car, instance_mask, im, car_loc)
-        param_map = {
-            'bg_id': bg_id,
-            'add_id': add_id,
-            'semantic_label': object_class
-        }
-        mutation = Mutation(MutationType.ADD_OBJECT, Image(img), Image(added_car), Image(mutate_gt), param_map)
-        return mutation
-
-    def change_car_color(self, object_class='vehicle.car'):
-        random_car = random.choice(self.get_instances(None, object_class))
-        sample = self.sample_for_object(random_car)
-        random_car_image = self.load_image(sample)
-        random_car_mask = self.get_instance_mask(random_car)
-        x, y, w, h = self.mutate.mask_bounding_rect(random_car_mask)
-        if w < 50 or h < 50:
-            return None
-        random_car_isolated = self.mutate.get_isolated(random_car_image, random_car_mask)
-        random_car_colored, color_shift, dec_lit, inc_sat = self.mutate.change_car_color(random_car_isolated)
-        img = self.mutate.add_isolated_object(random_car_colored, random_car_image, (x, y+h), random_car_mask)
-        param_map = {
-            'poly_id': random_car,
-            'color_shift': color_shift,
-            'dec_lit': dec_lit,
-            'inc_sat': inc_sat,
-            'semantic_label': object_class
-        }
-        mutation = Mutation(MutationType.CHANGE_COLOR, Image(random_car_image), Image(img),
-                            Image(self.gt_for_sample(sample)), param_map)
-        return mutation
-
-    def sample_for_object(self, object_token, table='object_ann'):
-        sample_token = self.nuim.get(table, object_token)['sample_data_token']
-        return self.nuim.get('sample_data', sample_token)['sample_token']
-
-    def sample_for_surface(self, surface_token):
-        return self.sample_for_object(surface_token, NuScenesMutator.SURFACE_TABLE)
-
-    def key_camera_for_sample(self, sample_token):
-        sample = self.nuim.get('sample', sample_token)
-        key_camera_token = sample['key_camera_token']
-        return key_camera_token
-
-    def load_image(self, sample_token):
-        key_camera_token = self.key_camera_for_sample(sample_token)
-        sample_data = self.nuim.get('sample_data', key_camera_token)
-        file = self.data_root + '/' + sample_data['filename']
-        img = cv2.imread(file)
-        return img
-
-    def gt_for_sample(self, sample_token):
-        # TODO
-        return None
-
-    def get_instances(self, sample_token, target_category):
-        if not isinstance(target_category, list):
-            target_category = [target_category]  # if not given a list obj, assume we meant a list of 1
-        if sample_token is not None:
-            key_camera_token = self.key_camera_for_sample(sample_token)
-            object_anns = [o for o in self.nuim.object_ann if o['sample_data_token'] == key_camera_token]
-            object_anns.extend([o for o in self.nuim.surface_ann if o['sample_data_token'] == key_camera_token])
-            selection_pool = []
-            for object_ann in object_anns:
-                category = self.nuim.get('category', object_ann['category_token'])
-                if category['name'] in target_category:
-                    selection_pool.append(object_ann['token'])
-            return selection_pool
-        else:
-            object_anns = [o['token'] for o in self.nuim.object_ann if self.nuim.get('category', o['category_token'])['name'] in target_category and o['token'] is not None]
-            object_anns.extend([o['token'] for o in self.nuim.surface_ann if self.nuim.get('category', o['category_token'])['name'] in target_category and o['token'] is not None])
-            return object_anns
-
-    def get_random_instance(self, sample_token, target_category):
-        return random.choice(self.get_instances(sample_token, target_category))
-
-    def get_instance_mask(self, instance_token, table='object_ann'):
-        mask_base64 = self.nuim.get(table, instance_token)['mask']
-        if mask_base64 is None:
-            return None
-        mask = mask_decode(mask_base64)
-        mask = np.stack((mask,) * 3, axis=-1)
-        mask[mask != 1] = 0
-        mask[mask == 1] = 255
-        mask = mask.astype(np.uint8)
-        return mask
-
-    def get_random_road_location(self, sample_token, bounds=None):
-        mask = self.get_instance_mask(self.get_random_instance(sample_token, 'flat.driveable_surface'), table='surface_ann')
-        mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
-        locs = np.where(mask == 255)
-        loc = random.randint(0, len(locs[0]))
-        return locs[1][loc], locs[0][loc]
 
 
 class ImageMutator:
@@ -984,10 +807,6 @@ class ImageMutator:
             # blurring adapted from https://www.geeksforgeeks.org/opencv-motion-blur-in-python/
             kernel_size = 15
             kernel = np.ones((kernel_size, kernel_size))
-            # kernel = np.zeros((kernel_size, kernel_size))
-            # the below is for directional blue. Ideally we could control it to blur down?
-            # kernel[:, int((kernel_size - 1) / 2)] = np.ones(kernel_size)
-            # kernel[int((kernel_size - 1) / 2), :] = np.ones(kernel_size)
             kernel /= np.sum(kernel)
             blurred = cv2.filter2D(src_mask_desc_loc, -1, kernel)
             blurred[blurred > 0] = 255
@@ -1001,14 +820,8 @@ class ImageMutator:
             # image_HLS[:, :, 1][mask[:, :, 0] == 255] = image_HLS[:, :, 1][mask[:, :, 0] == 255] * 0.5
             dest_hls[:, :, 1][blurred > 0] = dest_hls[:, :, 1][blurred > 0] * shadow_factor
             dest_shadowed = cv2.cvtColor(dest_hls, cv2.COLOR_HLS2BGR)
-            # cv2.imshow('dest', dest)
-            # cv2.imshow('dest_shadowed', dest_shadowed)
             dest = dest_shadowed
-            # cv2.waitKey()
         result = self.add_isolated_object(isolated_addition, dest, dest_loc, src_mask)
-        # cv2.imshow('added', result)
-        # cv2.imshow('src', src)
-        # cv2.imshow('isolated', isolated_addition)
         cv2.waitKey()
 
         return result
@@ -1025,11 +838,6 @@ class ImageMutator:
         # bordervalue needs to be white since we want to fill with +mask
         remove_from_dest_mask_dest = cv2.warpAffine(remove_from_dest_mask_src, translate_affine,
                                                     (width, height), borderValue=(255, 255, 255))
-        # print(dest.dtype, dest.shape)
-        # print(remove_from_dest_mask_dest.dtype, remove_from_dest_mask_dest.shape)
-        # cv2.imshow('dest', dest)
-        # cv2.imshow('mask', remove_from_dest_mask_dest)
-        # cv2.waitKey()
         emptied_dest = cv2.bitwise_and(dest, dest, mask=remove_from_dest_mask_dest)
         added_dest = cv2.add(emptied_dest, isolated_addition_dest)
         return added_dest
@@ -1069,23 +877,6 @@ class ImageMutator:
         car_values = car_isolated[:, :, -1]
         road_values = road_values[np.where(instance_mask == 255)]
         car_values = car_values[np.where(instance_mask == 255)]
-        # instance_mask = np.squeeze(np.stack((instance_mask,) * 3, axis=-1))
-        # print('road vals', road_values.shape)
-        # print('car vals', car_values.shape)
-        # print('instance mask', instance_mask.shape)
         road_median_value = np.median(road_values)
         car_median_value = np.median(car_values)
         return abs(road_median_value - car_median_value) < 5
-        # print(road_median_value)
-        # print(car_median_value)
-        # print('plotting road values hist')
-        # plt.hist(road_values)
-        # plt.title('road')
-        # plt.show()
-        # print('plotting car values hist')
-        # plt.hist(car_values)
-        # plt.title('car')
-        # plt.show()
-        # cv2.imshow('road isolated', self.get_isolated(road_img, instance_mask))
-        # cv2.imshow('car isolated', self.get_isolated(random_car_image, instance_mask))
-        # cv2.waitKey()

@@ -334,7 +334,6 @@ class Tester:
         cityscapes_eval_args.evalPixelAccuracy = True
         cityscapes_eval_args.quiet = quiet
         black_pixel = [0, 0, 0]
-        # dnc_count = []
         with Pool(Tester.pool_count) as pool:
             for sut in Tester.sut_list:
                 print('--- Evaluating %s ---' % sut.name)
@@ -452,7 +451,6 @@ class Tester:
         (score, diff) = structural_similarity(truth_gray, predicted_gray, full=True)
         diff = (diff * 255).astype("uint8")
         diff = np.stack((diff,) * 3, axis=-1)
-        # diff_image = np.copy(predicted)
         diff_image = cv2.bitwise_xor(truth, predicted)
         diff_image[np.where((diff_image!=[0,0,0]).any(axis=2))] = [255, 255, 255]  # convert not black to white
         if ignore_black:
@@ -494,7 +492,6 @@ class Tester:
             mid1, _ = Tester.diff_image_pair(base_file_name, mutation.orig_image.image, mutation.edit_image.image)
             mid = cv2.hconcat([mutation.orig_prediction_mutated.image, mutation.edit_prediction.image])
             bottom, diff_percent = Tester.diff_image_pair(base_file_name, mutation.orig_prediction_mutated.image, mutation.edit_prediction.image)
-            # total = cv2.vconcat([top, mid1, mid, bottom])
             total = cv2.vconcat([cv2.hconcat([top, mid]), cv2.hconcat([mid1, bottom])])
             differences.append((diff_percent, base_file_name))
             cv2.imwrite(base_file + '_total_%0.6f.png' % diff_percent, total)
@@ -525,10 +522,8 @@ class Tester:
             orig_prediction = cv2.imread(orig_prediction_loc)
             orig_image = cv2.imread(orig_image_loc)
             top = cv2.hconcat([orig_image, orig_image])
-            # mid1, _ = self.diff_image_pair(base_file_name, orig_image, orig_image)
             mid = cv2.hconcat([orig_prediction, edit_prediction])
             bottom, diff_percent = Tester.diff_image_pair(base_file_name, orig_prediction, edit_prediction, ignore_black=True)
-        #     # total = cv2.vconcat([top, mid1, mid, bottom])
             total = cv2.vconcat([cv2.hconcat([top, mid]), cv2.hconcat([mid, bottom])])
             differences.append((diff_percent, base_file_name))
             cv2.imwrite(folder + '/' + base_file_name + '_total_%0.6f.png' % diff_percent, total)
@@ -548,12 +543,6 @@ class Tester:
         ])
         mid1 = cv2.hconcat([blank_diff, diff])
         return mid1, diff_percent
-
-# TODO move the below functions into the class above
-DATA_ROOT = '/home/adwiii/data/sets/nuimages'
-nuim = NuImages(dataroot=DATA_ROOT, version='v1.0-mini', verbose=False, lazy=True)
-nuim_mutator = NuScenesMutator(DATA_ROOT, 'v1.0-mini')
-
 
 def print_distances(polys: List[SemanticPolygon]):
     i = 0

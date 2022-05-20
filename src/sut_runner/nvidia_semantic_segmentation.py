@@ -80,9 +80,3 @@ class NVIDIASemSeg(SUTRunner):
         rmtree(random_folder)
 
 
-if __name__ == '__main__':
-    NVIDIASemSeg('/home/adwiii/git/nvidia/semantic-segmentation').run_semantic_seg('/home/adwiii/git/perception_fuzzing/src/images/add_car_check_perspective', SUTRunner.TEMP_DIR + '/nvidiasemseg_out')
-    # run_semantic_seg('/home/adwiii/Downloads/Ch2_002/output/center', '/home/adwiii/Downloads/Ch2_002/output/center_semantic')
-    copy_output('/home/adwiii/Downloads/Ch2_002/output/center_semantic', 'tmp2c56t94d')
-
-

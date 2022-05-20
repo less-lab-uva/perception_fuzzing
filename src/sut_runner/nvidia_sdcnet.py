@@ -34,7 +34,3 @@ class NVIDIASDCNet(SUTRunner):
             command = self.base_command.replace('INPUT_DIR', folder).replace('OUTPUT_DIR', temp_folder)
             SUTRunner._run_docker(command, verbose)
             copy_output(dest_folder, temp_folder)
-
-
-if __name__ == '__main__':
-    NVIDIASDCNet('/home/adwiii/git/nvidia/sdcnet/semantic-segmentation', '/home/adwiii/git/nvidia/large_assets/sdcnet_weights/cityscapes_best.pth').run_semantic_seg('/home/adwiii/git/perception_fuzzing/src/images/add_car_check_perspective', SUTRunner.TEMP_DIR + '/sdcnet_out')

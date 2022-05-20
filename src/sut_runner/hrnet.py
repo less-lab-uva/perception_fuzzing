@@ -63,7 +63,3 @@ class HRNet(SUTRunner):
                                                          input_list).replace('OUTPUT_DIR_TO_REPLACE', folder_name)
                     SUTRunner._run_docker(command, verbose)
                     copy_output(dest_folder, str(temp_folder))
-
-
-if __name__ == '__main__':
-    HRNet('/home/adwiii/git/HRNet-Semantic-Segmentation').run_semantic_seg('/home/adwiii/git/perception_fuzzing/src/images/add_car_check_perspective', SUTRunner.TEMP_DIR + '/hrnet_out')

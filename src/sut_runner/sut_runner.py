@@ -15,8 +15,8 @@ def normalize_folders(folder, dest_folder=None):
 
 
 class SUTRunner:
-    HOME_DIR = '/data/'
-    EXTRA_DIR = '/home/adwiii/'
+    HOME_DIR = '/data/'  # location where the tests are located
+    EXTRA_DIR = '/home/adwiii/'  # location where this Python project is located
     DOCKER_VOLUME_STR = '-v "' + HOME_DIR + ':' + HOME_DIR + '" -v "' + EXTRA_DIR + ':' + EXTRA_DIR + '"'
     TEMP_DIR = HOME_DIR + 'tmp/'
     if not os.path.isdir(TEMP_DIR):

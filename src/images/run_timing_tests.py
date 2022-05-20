@@ -14,7 +14,7 @@ from image_mutator import MutationFolder, Mutation, MutationType
 from tester import Tester
 
 NUM_TO_GEN = 100
-DIR = '/data/time_tests'
+DIR = '/tmp/time_tests'
 output_file = '%s/time_output.txt' % DIR
 os.makedirs(DIR, exist_ok=True)
 
