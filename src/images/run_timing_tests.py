@@ -1,5 +1,5 @@
 """
-Script that runs the timing tests described in Table 3 in Section 6.4 of the paper.
+Script that runs the timing tests described in Table 3 in Section 5.4.2 of the paper.
 """
 import itertools
 import tempfile
@@ -14,8 +14,9 @@ from image_mutator import MutationFolder, Mutation, MutationType
 from tester import Tester
 
 NUM_TO_GEN = 100
-output_file = '/data/time_tests/time_output.txt'
-os.makedirs('/data/time_tests/', exist_ok=True)
+DIR = '/data/time_tests'
+output_file = '%s/time_output.txt' % DIR
+os.makedirs(DIR, exist_ok=True)
 
 def pprint(output=''):
     print(output)
@@ -24,7 +25,7 @@ def pprint(output=''):
 
 
 def run_add_car(test_num):
-    directory = '/data/time_tests/add_car_%d' % test_num
+    directory = '%s/add_car_%d' % (DIR, test_num)
     Tester.initialize(working_directory=directory)
     start_time = time.time_ns()
     for _ in range(NUM_TO_GEN):
@@ -36,7 +37,7 @@ def run_add_car(test_num):
 
 
 def run_add_person(test_num):
-    directory = '/data/time_tests/add_person_%d' % test_num
+    directory = '%s/add_person_%d' % (DIR, test_num)
     Tester.initialize(working_directory=directory)
     start_time = time.time_ns()
     for _ in range(NUM_TO_GEN):
@@ -48,7 +49,7 @@ def run_add_person(test_num):
 
 
 def run_color_car(test_num):
-    directory = '/data/time_tests/car_color_%d' % test_num
+    directory = '%s/car_color_%d' % (DIR, test_num)
     Tester.initialize(working_directory=directory)
     start_time = time.time_ns()
     for _ in range(NUM_TO_GEN):
@@ -60,7 +61,7 @@ def run_color_car(test_num):
 
 
 def run_suts(test_num, index, mutation):
-    directory = '/data/time_tests/sut_runs_%d_%d' % (test_num, index)
+    directory = '%s/sut_runs_%d_%d' % (DIR, test_num, index)
     Tester.initialize(working_directory=directory)
     Tester.run_fuzzer(folders_to_run=1, generate_only=True, num_per_mutation=NUM_TO_GEN, mutations_to_run=[mutation])
     mutation_folder = Tester.mutation_folders[0]
