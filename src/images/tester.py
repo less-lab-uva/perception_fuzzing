@@ -15,12 +15,14 @@ from skimage.metrics import structural_similarity
 import traceback
 from multiprocessing import Pool
 from image_mutator import *
+from src.sut_runner.sut_runner import SUTRunner
 from src.sut_runner.decouple_segnet import DecoupleSegNet
 from src.sut_runner.efficientps import EfficientPS
 from src.sut_runner.hrnet import HRNet
 from src.sut_runner.nvidia_sdcnet import NVIDIASDCNet
 from src.sut_runner.nvidia_semantic_segmentation import NVIDIASemSeg
 from src.sut_runner.sut_manager import SUTManager
+from typing import List
 
 current_file_path = Path(__file__)
 sys.path.append(str(current_file_path.parent.parent.absolute()) + '/cityscapesScripts')
@@ -33,7 +35,7 @@ def save_paletted_image(old_file_path, new_file_path):
 
 
 class Tester:
-    CITYSCAPES_DATA_ROOT = '/home/adwiii/data/cityscapes'
+    CITYSCAPES_DATA_ROOT = None
     cityscapes_mutator = None
     BEST_SUT = None  # the SUT to be used for criteria of whether or not to include in mutation resources
     HIGH_DNC = []
@@ -41,35 +43,27 @@ class Tester:
     sut_manager = None
     pool_count = None
     _initialized = False
-    SCORE_THRESHOLD = 95  # As a percent out of 100
+    SCORE_THRESHOLD = 95  # As a percent out of 100, this is the value used in the paper
     cityscapes_results = None
     __cityscapes_runs_folder = None
-    # working_directory = str(current_file_path.parent.parent.absolute()) + '/world_fuzzing/'
-    working_directory = '/data/world_fuzzing/'
+    working_directory = None
     mutation_folders = None
 
     @staticmethod
-    def initialize(working_directory=None, cityscapes_data_root=None, pool_count=30, score_threshold=None,
-                   load_mut_fols=True):
+    def initialize(best_sut: SUTRunner=None, sut_list: List[SUTRunner]=None, working_directory=None, cityscapes_data_root=None,
+                   pool_count=30, score_threshold=None, load_mut_fols=True):
         Tester._initialized = True
-        if working_directory is not None:
-            Tester.working_directory = working_directory
+        Tester.working_directory = working_directory if working_directory is not None else os.environ('WORKING_DIR')
         if Tester.working_directory[-1] != '/':
             Tester.working_directory += '/'
         os.makedirs(Tester.working_directory, exist_ok=True)
-        Tester.BEST_SUT = NVIDIASemSeg('/home/adwiii/git/nvidia/semantic-segmentation')
-        Tester.sut_list = [
-            Tester.BEST_SUT,
-            NVIDIASDCNet('/home/adwiii/git/nvidia/sdcnet/semantic-segmentation',
-                         '/home/adwiii/git/nvidia/large_assets/sdcnet_weights/cityscapes_best.pth'),
-            DecoupleSegNet('/home/adwiii/git/DecoupleSegNets'),
-            EfficientPS('/home/adwiii/git/EfficientPS'),
-            HRNet('/home/adwiii/git/HRNet-Semantic-Segmentation')
-        ]
+        Tester.BEST_SUT = best_sut
+        if best_sut not in sut_list:
+            sut_list.insert(0, best_sut)
+        Tester.sut_list = sut_list
         Tester.sut_manager = SUTManager(Tester.sut_list)
         Tester.pool_count = pool_count
-        if cityscapes_data_root is not None:
-            Tester.CITYSCAPES_DATA_ROOT = cityscapes_data_root
+        Tester.CITYSCAPES_DATA_ROOT = cityscapes_data_root if cityscapes_data_root is not None else os.environ('CITYSCAPES_DATA_ROOT')
 
         cityscapes_runs_folder = Tester.__get_cityscapes_runs_folder()
         all_paths_exist = True
@@ -114,8 +108,6 @@ class Tester:
             score_on_baseline[sut] = {Tester.get_base_file(image[0]):
                                           Tester.get_score(image[1])
                                       for image in image_scores.items()}
-        # data = []
-        # data_drop = []
         data_with_images_drop = {}  # list of tuples: (image, score, baseline_score, baseline_score - score)
         data_with_images_drop_mutation = defaultdict(lambda:[])  # list of tuples: (image, score, baseline_score, baseline_score - score)
         data_with_images = {}
@@ -129,11 +121,6 @@ class Tester:
             results = Tester.compute_cityscapes_metrics(mut_fol)
             for sut, result_dict in results.items():
                 image_scores = result_dict["perImageScores"]
-                # data.extend([Tester.get_score(image) for image in image_scores.items()])
-                # data_drop.extend([score_on_baseline[sut][Tester.get_base_file(image[0])] - Tester.get_score(image)
-                #                   for image in image_scores.items()
-                #                   if (score_on_baseline[sut][Tester.get_base_file(image[0])]
-                #                       - Tester.get_score(image)) > min_drop])
                 data_with_images_drop[sut].extend([(image[0], Tester.get_score(image[1]),
                                                         score_on_baseline[sut][Tester.get_base_file(image[0])],
                                                         score_on_baseline[sut][Tester.get_base_file(image[0])]
@@ -159,23 +146,15 @@ class Tester:
         for sut in Tester.sut_list:
             data_with_images_drop[sut.name].sort(key=lambda x: (x[3], -x[1]), reverse=True)
             data_with_images[sut.name].sort(key=lambda x: x[1])
-            # plt.xlabel('Percentage point drop in % pixels correct')
-            # plt.ylabel('Log Count of Images')
-            # plt.legend(loc='upper right')
-            # plt.show()
             over_min = [(item[0], item[3]) for item in data_with_images_drop[sut.name] if item[3] >= min_drop]
             print(sut.name, len(over_min))
             count_over_min[sut.name] = (len(over_min), over_min)
-        # print(count_over_min)
         plot_hist_as_line([[item[3] for item in data_with_images_drop_mutation[mutation]] for mutation in data_with_images_drop_mutation.keys()],
                           [str(mutation) for mutation in data_with_images_drop_mutation.keys()], bin_count, bins, log=False)
         plt.xlabel('Percentage point drop in % pixels correct')
         plt.ylabel('Log Count of Images')
         plt.legend(loc='upper right')
         plt.show()
-        # worst_images[mutation_folder.short_name][sut] = data_with_images[:worst_count]
-        # worst_images_drop[mutation_folder.short_name][sut] = data_with_images_drop[:worst_count]
-        # worst_images_for_counts.extend([Tester.get_base_file(item[0]) for item in data_with_images[:worst_count]])
 
 
     @staticmethod
@@ -559,259 +538,19 @@ def plot_hist_as_line(data, label, bin_count=None, bins=None, log=False):
     # https://stackoverflow.com/questions/27872723/is-there-a-clean-way-to-generate-a-line-histogram-chart-in-python
     n, calced_bins, _ = plt.hist(data, bins=bins if bins is not None else bin_count,
                                  histtype='bar', alpha=1, stacked=True, label=label, log=log)
-    # bin_centers = 0.5 * (calced_bins[1:] + calced_bins[:-1])
-    # plt.plot(bin_centers, n, label=label)  ## using bin_centers rather than edges
     return n, calced_bins
 
 
-KEY_CLASSES = ['car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle', 'person', 'rider']
 if __name__ == '__main__':
-    # Tester.run_fuzzer(generate_only=False)
-    Tester.initialize()
-    for mut_fol in Tester.mutation_folders:
-        Tester.sut_manager.run_suts(mut_fol)
-        Tester.compute_cityscapes_metrics(mut_fol)
-    exit()
-#     # mutation_folder = MutationFolder('/home/adwiii/git/perception_fuzzing/src/images/new_mutation_gt')
-#     # tester.compute_cityscapes_metrics(mutation_folder)
-#     base_folder = '/home/adwiii/git/perception_fuzzing/src/images/fri_'
-#     folders = []
-#     for local_folder, mutation_type, arg_dict in [
-#         ('person_color', MutationType.CHANGE_COLOR, {'semantic_label': 'person'}),
-#         ('car_color', MutationType.CHANGE_COLOR, {'semantic_label': 'car'}),
-#         ('add_person', MutationType.ADD_OBJECT, {'semantic_label': 'person'}),
-#         ('add_car', MutationType.ADD_OBJECT, {'semantic_label': 'car'}),
-#     ]:
-#         folder = base_folder + local_folder
-#         mutation_folder = MutationFolder(folder)
-#         # tester.execute_tests(mutation_folder, mutation_type=mutation_type, arg_dict=arg_dict, compute_metrics=False)
-#         folders.append(mutation_folder)
-#     folders.insert(0, MutationFolder(CITYSCAPES_DATA_ROOT + '/sut_gt_testing'))
-#     worst_images = {}
-#     worst_images_drop = {}
-#     worst_count = 5
-#     worst_images_for_counts = []
-#     score_on_training = {}
-#     for index, mutation_folder in enumerate(folders):
-#         bins = np.linspace(0.5, 4.5, 20)
-#         running_total = 0
-#         results = tester.compute_cityscapes_metrics(mutation_folder, quiet=True)
-#         worst_images[mutation_folder.short_name] = {}
-#         worst_images_drop[mutation_folder.short_name] = {}
-#         for sut, result_dict in results.items():
-#             image_scores = result_dict["perImageScores"]
-#             data = [Tester.get_score(image) for image in image_scores.items()]
-#             if index == 0:
-#                 score_on_training[sut] = {Tester.get_base_file(image[0]):
-#                                               Tester.get_score(image)
-#                                           for image in image_scores.items()}
-#             data_drop = [score_on_training[sut][Tester.get_base_file(image[0])] - Tester.get_score(image)
-#                          for image in image_scores.items() if (score_on_training[sut][Tester.get_base_file(image[0])] - Tester.get_score(image)) > 0.5]
-#             data_with_images_drop = sorted([(image[0], Tester.get_score(image),
-#                                         score_on_training[sut][Tester.get_base_file(image[0])],
-#                                              score_on_training[sut][Tester.get_base_file(image[0])] - Tester.get_score(image))
-#                                        for image in image_scores.items()],  # sort by drop from gt to us
-#                                       key=lambda x: (x[3], -x[1]), reverse=True)
-#             data_with_images = sorted(
-#                 [(image[0], Tester.get_score(image),
-#                   score_on_training[sut][Tester.get_base_file(image[0])],
-#                   score_on_training[sut][Tester.get_base_file(image[0])] - Tester.get_score(image))
-#                  for image in image_scores.items()],  # sort by worst performance
-#                 key=lambda x: x[1])
-#             worst_images[mutation_folder.short_name][sut] = data_with_images[:worst_count]
-#             worst_images_drop[mutation_folder.short_name][sut] = data_with_images_drop[:worst_count]
-#             worst_images_for_counts.extend([Tester.get_base_file(item[0]) for item in data_with_images[:worst_count]])
-#             n, bins = plot_hist_as_line(data_drop, sut, 40, bins)
-#             running_total += np.sum(n)
-#         plt.title('Hist of percentage point drop in %% pixel correct\nfor each image vs non-mutated img: %s\nTotal: %d' % (mutation_folder.short_name.replace('fri', ''), running_total))
-#         plt.xlabel('Percentage point drop in % pixels correct')
-#         plt.ylabel('Count of Images')
-#         plt.legend(loc='upper right')
-#         plt.show()
-#     print(worst_images)
-#     print(worst_images_drop)
-#     print(Counter(worst_images_for_counts))
-#     pp = pprint.PrettyPrinter(indent=2, compact=True)
-#     print('Worst:')
-#     pp.pprint(worst_images)
-#     print('Overall Worst:')
-#     pp.pprint(Counter(worst_images_for_counts))
-#     pp.pprint({mutation: Counter(list(itertools.chain(*[[Tester.get_base_file(item[0]) for item in lst] for lst in suts.values()]))) for mutation, suts in worst_images.items()})
-#     print()
-#     print('Worst Drop:')
-#     pp.pprint(worst_images_drop)
-#     pp.pprint(
-#         {mutation: Counter(list(itertools.chain(*[[Tester.get_base_file(item[0]) for item in lst] for lst in suts.values()])))
-#          for mutation, suts in worst_images_drop.items()})
-#
-#     exit()
-#
-#     # tester.run_on_cityscapes_benchmark()
-#
-#     # folder = '/home/adwiii/git/perception_fuzzing/src/images/cityscapes_good_gt_mutations_10k/'
-#     # folder = '/home/adwiii/git/perception_fuzzing/src/images/cityscapes_good_gt_mutations_add_car/'
-#     # folder = '/home/adwiii/git/perception_fuzzing/src/images/cityscapes_good_gt_add_person/'
-#     folder = '/home/adwiii/git/perception_fuzzing/src/images/cityscapes_good_gt_change_person_color/'
-#     # folder = '/home/adwiii/git/perception_fuzzing/src/images/add_car_check_perspective_rotated/'
-#     if not os.path.exists(folder):
-#         os.mkdir(folder)
-#     diff_folder = folder[:-1] + '_differences/'
-#     if not os.path.exists(diff_folder):
-#         os.mkdir(diff_folder)
-#     # cityscapes_mutator.aggregate_images(folder)
-#     # semantic_seg_runner.run_semantic_seg(folder)
-#
-#     mutation_folder = MutationFolder(folder)
-#     # create_fuzz_images(mutation_folder, 100, pool_count=1)
-#     #
-#     # exit()
-#     # semantic_seg_runner.run_semantic_seg(folder)
-#     # exit()
-#
-#     issue_count = defaultdict(lambda:0)
-#     issue_count_files = defaultdict(lambda:[])
-#     steering_diffs = []
-#     # for file in glob.glob('/home/adwiii/git/perception_fuzzing/src/images/cityscapes_gt_predictions/*_prediction.png'):
-#     for file in glob.glob(folder + '*edit_prediction.png'):
-#         print(file)
-#         try:
-#             file_name = file[file.rfind('/')+1:]
-#             # if file_name not in ['1255b027-7596-4fcf-912f-8b6734780f86_erfurt_000100_000019_edit_prediction.png', 'ff1d4db2-0cb8-4996-ac32-b525bf9eeed8_erfurt_000100_000019_edit_prediction.png', '7669be9a-2120-46a1-8aea-0a469932ab2b_bremen_000312_000019_edit_prediction.png', '55203bc1-545a-482c-b466-50256afcc304_erfurt_000100_000019_edit_prediction.png', '4c5d6fbf-5978-4ffd-a8eb-db8f3eb79adf_cologne_000059_000019_edit_prediction.png', 'ee683248-339e-4035-bf10-5ca0d984a84b_dusseldorf_000167_000019_edit_prediction.png', '60ddc2ca-549e-4538-8aad-5d0025c7e0e3_dusseldorf_000165_000019_edit_prediction.png', '6cddbf73-8c56-48fe-af9b-1a29eb8700ba_cologne_000059_000019_edit_prediction.png', '6dff1e2b-2022-409e-8827-23c635c8446a_dusseldorf_000167_000019_edit_prediction.png', 'f9887a77-1c34-478b-9e98-d1f4e2f37b7a_erfurt_000100_000019_edit_prediction.png', '4ef90064-cc16-4ab6-8952-cd540f818d12_cologne_000059_000019_edit_prediction.png']:
-#             #     continue
-#             # print(file_name)
-#             # if file_name not in ['7d5e1d74-2613-4122-8cc7-dc9683728300_krefeld_000000_030111_edit_prediction.png', '80bad570-6d37-40f4-aad8-1f6876f1c4c0_aachen_000129_000019_edit_prediction.png'] and \
-#             #     file_name not in ['b7d1dd45-6a1c-4573-8ef4-33e4f75433d1_dusseldorf_000167_000019_edit_prediction.png', 'c3093d20-2414-4d0f-aba3-54ca8f578b35_dusseldorf_000167_000019_edit_prediction.png', '08d13095-bb02-4141-a031-4ecf87015721_ulm_000049_000019_edit_prediction.png', 'c31bc55e-a1e9-42f6-bec5-bf5b8ca36415_hanover_000000_056457_edit_prediction.png', '82a8c4eb-c47f-4246-9b6f-0a5e8b9d1370_ulm_000008_000019_edit_prediction.png', '623874c8-067d-417a-a9e0-ce263c6be19e_hanover_000000_007897_edit_prediction.png']:
-#             #     continue
-#             # if file_name not in ['623874c8-067d-417a-a9e0-ce263c6be19e_hanover_000000_007897_edit_prediction.png']:
-#             #     continue
-#             # if file_name not in ['29848911-9773-4a31-a29e-5f739bfa990b_darmstadt_000060_000019_edit_prediction.png']:
-#             #     continue
-#             orig_pred_image_file = file.replace('edit_prediction', 'orig_prediction')
-#             orig_pred_image = Image(image_file=orig_pred_image_file, read_on_load=True)
-#             short_file = file_name[file_name.rfind('/')+1:]
-#             orig_pred_mutation_file = mutation_folder.pred_mutations_folder + short_file.replace('edit_prediction', 'mutation_prediction')
-#             if os.path.exists(orig_pred_mutation_file):
-#                 orig_pred_mutation_image = Image(image_file=orig_pred_mutation_file, read_on_load=True)
-#                 pred_mutation_mask = np.copy(orig_pred_mutation_image.image)
-#                 # convert to black and white
-#                 pred_mutation_mask[np.where((pred_mutation_mask != [0,0,0]).any(axis=2))] = [255, 255, 255]
-#                 pred_mutation_mask = cv2.cvtColor(pred_mutation_mask, cv2.COLOR_BGR2GRAY)
-#                 _, pred_mutation_mask = cv2.threshold(pred_mutation_mask, 40, 255, cv2.THRESH_BINARY)
-#                 inv_mask = cv2.bitwise_not(pred_mutation_mask)
-#                 orig_pred_image.image = cv2.bitwise_and(orig_pred_image.image, orig_pred_image.image, mask=inv_mask)
-#                 # orig_pred_mutated = cv2.bitwise_or(orig_pred_image.image, orig_pred_mutation_image.image, mask=pred_mutation_mask)
-#                 orig_pred_image.image = cv2.add(orig_pred_image.image, orig_pred_mutation_image.image)
-#             edit_pred_image = Image(image_file=file, read_on_load=True)
-#             steering_angles = steering_models.evaluate([orig_pred_image.image, edit_pred_image.image])
-#             print(steering_angles)
-#             steering_diff = abs(steering_angles[0] - steering_angles[1]) * 180 / np.pi
-#             # if 10 > steering_diff > 5:
-#             #     cv2.imshow('orig', orig_pred_image.image)
-#             #     cv2.imshow('edit', edit_pred_image.image)
-#             #     cv2.waitKey()
-#             # exit()
-#             steering_diffs.append((steering_diff, steering_angles[0] * 180 / np.pi, steering_angles[1] * 180 / np.pi, file))
-#             # orig_pred_semantics = ImageSemantics(orig_pred_image, CityscapesMutator.COLOR_TO_ID, KEY_CLASSES)
-#             # edit_pred_semantics = ImageSemantics(edit_pred_image, CityscapesMutator.COLOR_TO_ID, KEY_CLASSES)
-#             # orig_pred_semantics.compute_semantic_polygons()
-#             # edit_pred_semantics.compute_semantic_polygons()
-#             # cityscapes_short_file = file_name[file_name.find('_')+1:file_name.find('_edit')]
-#             # exclusion_zones: List[CityscapesPolygon] = cityscapes_mutator.get_ego_vehicle(cityscapes_mutator.get_file(cityscapes_short_file))
-#             # sem_diffs = SemanticDifferences(orig_pred_semantics, edit_pred_semantics, [poly.polygon for poly in exclusion_zones])
-#             # sem_diffs.calculate_semantic_difference()
-#             # issues = 0
-#             # for key in KEY_CLASSES:
-#             #     total = len(sem_diffs.only_in_orig[key]) + len(sem_diffs.only_in_edit[key])
-#             #     if total > 0:
-#             #         edit_pred_image_copy = Image(image=np.copy(edit_pred_image.image), image_file=diff_folder + file_name)
-#             #         orig_pred_image_copy = Image(image=np.copy(orig_pred_image.image), image_file=diff_folder + file_name.replace('edit', 'orig'))
-#             #         print('Found differences for %s in image %s' % (key, file_name))
-#             #         print('Only in gt:')
-#             #         for orig in sem_diffs.only_in_orig[key]:
-#             #             print(orig.center, orig.effective_area, len(orig.additions), orig.max_dim)
-#             #             orig_pred_image_copy.image = cv2.drawContours(orig_pred_image_copy.image, orig.get_inflated_polygon_list(), -1, (255, 255, 255))
-#             #             issues += 1
-#             #         print_distances(sem_diffs.only_in_orig[key])
-#             #         print('Only in predicted:')
-#             #         for edit in sem_diffs.only_in_edit[key]:
-#             #             print(edit.center, edit.effective_area, len(edit.additions), edit.max_dim)
-#             #             edit_pred_image_copy.image = cv2.drawContours(edit_pred_image_copy.image, edit.get_inflated_polygon_list(), -1, (255, 255, 255))
-#             #             issues += 1
-#             #         orig_pred_image_copy.save_image()
-#             #         edit_pred_image_copy.save_image()
-#             # # cv2.imshow('orig', orig_pred_semantics.image)
-#             # # cv2.imshow('edit', edit_pred_semantics.image)
-#             # # cv2.waitKey()
-#             # issue_count[issues] += 1
-#             # issue_count_files[issues].append(file_name)
-#         except:
-#             traceback.print_exc()
-#             exit()
-#             issue_count[-1] += 1
-#     for count, files in issue_count_files.items():
-#         if count == 0:
-#             continue
-#         print(count, files)
-#     print(issue_count)
-#     steering_diffs.sort(reverse=True)
-#     print('\n'.join([str(s) for s in steering_diffs]))
-#     plt.hist([item[0] for item in steering_diffs])
-#     plt.xlabel('Difference in steering angles (deg)')
-#     plt.ylabel('Count')
-#     title = folder[:-1]
-#     title = title[title.rfind('/'):]
-#     plt.title(title)
-#     plt.show()
-#
-#
-#
-# # def check_differences_polygons_cityscapes():
-# #     cityscapes_color_to_id = {(0, 0, 0): 'static', (0, 74, 111): 'dynamic', (81, 0, 81): 'ground', (128, 64, 128): 'road', (232, 35, 244): 'sidewalk', (160, 170, 250): 'parking', (140, 150, 230): 'rail track', (70, 70, 70): 'building', (156, 102, 102): 'wall', (153, 153, 190): 'fence', (180, 165, 180): 'guard rail', (100, 100, 150): 'bridge', (90, 120, 150): 'tunnel', (153, 153, 153): 'polegroup', (30, 170, 250): 'traffic light', (0, 220, 220): 'traffic sign', (35, 142, 107): 'vegetation', (152, 251, 152): 'terrain', (180, 130, 70): 'sky', (60, 20, 220): 'person', (0, 0, 255): 'rider', (70, 0, 0): 'truck', (100, 60, 0): 'bus', (90, 0, 0): 'caravan', (110, 0, 0): 'trailer', (100, 80, 0): 'train', (230, 0, 0): 'motorcycle', (32, 11, 119): 'bicycle'}
-# #     for i in range(1, 2001):
-# #         try:
-# #             which = str(i)  #  TODO 19, resume at 61
-# #             orig_image = Image(image_file='/home/adwiii/git/perception_fuzzing/src/images/test_imgs/%s_orig_prediction.png' % which)
-# #             orig_image.load_image()
-# #             orig_semantics = ImageSemantics(orig_image, cityscapes_color_to_id)
-# #             orig_semantics.compute_semantic_polygons()
-# #             edit_image = Image(image_file='/home/adwiii/git/perception_fuzzing/src/images/test_imgs/%s_edit_prediction.png' % which)
-# #             edit_image.load_image()
-# #             edit_semantics = ImageSemantics(edit_image, cityscapes_color_to_id)
-# #             edit_semantics.compute_semantic_polygons()
-# #
-# #             sem_diffs = SemanticDifferences(orig_semantics, edit_semantics)
-# #             sem_diffs.calculate_semantic_difference()
-# #             # for key in sem_diffs.all_keys:
-# #             for key in ['car', 'truck', 'bus', 'caravan', 'trailer', 'train', 'motorcycle', 'bicycle']:
-# #                 total = len(sem_diffs.only_in_orig[key]) + len(sem_diffs.only_in_edit[key])
-# #                 if total > 0:
-# #                     print('Found differences for %s in image %s' % (key, which))
-# #                     print('Only in orig:')
-# #                     for orig in sem_diffs.only_in_orig[key]:
-# #                         print(orig.center, orig.effective_area)
-# #                     print('Only in edit:')
-# #                     for edit in sem_diffs.only_in_edit[key]:
-# #                         print(edit.center, edit.effective_area)
-# #                 # for pair in sem_diffs.matching_pairs[key]:
-# #                 #     print('Center Distance:', pair.get_center_distance())
-# #                 #     print('Area Difference:', pair.get_area_difference())
-# #         except:
-# #             pass
-#
-#
-#     # for sem_id in orig_semantics.semantic_maps.keys():
-#     #     print(sem_id, len(orig_semantics.semantic_maps[sem_id]), len(edit_semantics.semantic_maps[sem_id]))
-#
-#     # folder = '/home/adwiii/git/SIMS/result/synthesis/transform_order_512'
-#     # semantic_seg_runner.run_semantic_seg(folder)
-#     # folder = '/home/adwiii/git/perception_fuzzing/src/images/test_imgs4/'
-#     # if not os.path.exists(folder):
-#     #     os.mkdir(folder)
-#     # mutation_folder = MutationFolder(folder)
-#     # create_fuzz_images(mutation_folder, 200, pool_count=1)
-#     # print('Generated images, running semantic seg')
-#     # semantic_seg_runner.run_semantic_seg(mutation_folder.folder)
-#     # print('Run Semantic Seg, running analytics')
-#     # tester = Tester()
-#     # tester.visualize_plain_folder(folder)
-#
+    # TODO update these to point to the SUTs on your local machine
+    best_sut_to_test = NVIDIASemSeg('/home/adwiii/git/nvidia/semantic-segmentation')
+    suts_to_test = [
+        best_sut_to_test,
+        NVIDIASDCNet('/home/adwiii/git/nvidia/sdcnet/semantic-segmentation',
+                     '/home/adwiii/git/nvidia/large_assets/sdcnet_weights/cityscapes_best.pth'),
+        DecoupleSegNet('/home/adwiii/git/DecoupleSegNets'),
+        EfficientPS('/home/adwiii/git/EfficientPS'),
+        HRNet('/home/adwiii/git/HRNet-Semantic-Segmentation')
+    ]
+    Tester.initialize(best_sut_to_test, suts_to_test)
+    Tester.run_fuzzer()

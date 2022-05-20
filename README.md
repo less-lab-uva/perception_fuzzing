@@ -10,12 +10,16 @@ This repository contains code and high level algorithm descriptions for the pape
 git submodule init
 git submodule update
 ```
-3. Add the root folder of the project to the Python path. On Linux this can be done by:
-```
-export PYTHONPATH=$PYTHONPATH:$(pwd) 
-```
+3. Set up the environment variables in [init.bash](init.bash).
 4. Download the [Cityscapes dataset](https://www.cityscapes-dataset.com/). See [this document](CityscapesSetup.md) for more information.
-5. Set up the Systems Under Test (SUTs) that you intend to test with the system. For information on the five SUTs used in the study, please see the [study data README](study_data/README.md).
+5. Each time you start a new shell to run the tester, run the following to set up the environment variables.
+```
+. init.bash
+```
+6. Set up the Systems Under Test (SUTs) that you intend to test with the system. For information on the five SUTs used in the study, please see the [study data README](study_data/README.md). This is not needed if you are only trying to recreate the mutated images from the study.
+
+## Recreating the Tests from the Study
+For information on how to recreate the tests from the study, please see [this README](study_data/README.md).
 
 
 ## Repository Status
