@@ -510,7 +510,7 @@ class CityscapesMutator:
         self.poly_id_mapping: Dict[str, CityscapesPolygon] = {}
         self.short_file_mapping: Dict[str, str] = {}
         self.good_files = good_files
-        self.blurred = False
+        self.blurred = blurred
         self.build_image_dict()
 
     def get_mutation_type(self, name):
