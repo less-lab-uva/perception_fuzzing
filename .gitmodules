@@ -1,0 +1,3 @@
+[submodule "src/cityscapesScripts"]
+	path = src/cityscapesScripts
+	url = https://github.com/less-lab-uva/cityscapesScripts.git
