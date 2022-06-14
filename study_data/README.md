@@ -5,6 +5,9 @@ For the study, we performed three types of mutation: changing the color of a car
 The mutations were carried out in batches of 6000 with 2000 each of the different mutations.
 The `all_mutation_logs` folder contains 25 files, each with 6000 mutation parameters that describe each of the mutations produced.
 Together, these 25 files provide the full parameters needed to generate the 150,000 mutations from the study.
+The [recreate_mutations.py](../src/images/recreate_mutations.py) script contains code to automatically re-generate all of the images from the study.
+The script will run out-of-the-box to re-create the mutations, but cannot be used for running the SUTs on the images.
+See below for more information on running the SUTs.
 
 ## Running the SUTs
 To study the utility of *semImFuzz* to test perception systems, we set up the five best performing systems on the [Cityscapes Benchmark](https://www.cityscapes-dataset.com/benchmarks/#scene-labeling-task) that provided code and model data at the time of the study. The leaderboard is constantly changing, and there may be newer SUTs available.

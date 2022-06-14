@@ -50,20 +50,37 @@ class Tester:
     mutation_folders = None
 
     @staticmethod
+    def default_initialization():
+        # TODO update these to point to the SUTs on your local machine
+        best_sut_to_test = NVIDIASemSeg('/home/adwiii/git/nvidia/semantic-segmentation')
+        suts_to_test = [
+            best_sut_to_test,
+            NVIDIASDCNet('/home/adwiii/git/nvidia/sdcnet/semantic-segmentation',
+                         '/home/adwiii/git/nvidia/large_assets/sdcnet_weights/cityscapes_best.pth'),
+            DecoupleSegNet('/home/adwiii/git/DecoupleSegNets'),
+            EfficientPS('/home/adwiii/git/EfficientPS'),
+            HRNet('/home/adwiii/git/HRNet-Semantic-Segmentation')
+        ]
+        Tester.initialize(best_sut_to_test, suts_to_test)
+
+    @staticmethod
     def initialize(best_sut: SUTRunner=None, sut_list: List[SUTRunner]=None, working_directory=None, cityscapes_data_root=None,
                    pool_count=30, score_threshold=None, load_mut_fols=True):
         Tester._initialized = True
-        Tester.working_directory = working_directory if working_directory is not None else os.environ('WORKING_DIR')
+        Tester.working_directory = working_directory if working_directory is not None else os.getenv('WORKING_DIR')
         if Tester.working_directory[-1] != '/':
             Tester.working_directory += '/'
         os.makedirs(Tester.working_directory, exist_ok=True)
         Tester.BEST_SUT = best_sut
-        if best_sut not in sut_list:
-            sut_list.insert(0, best_sut)
-        Tester.sut_list = sut_list
-        Tester.sut_manager = SUTManager(Tester.sut_list)
+        if sut_list is None:
+            sut_list = []
+        if sut_list is not None:
+            if best_sut not in sut_list and best_sut is not None:
+                sut_list.insert(0, best_sut)
+            Tester.sut_list = sut_list
+            Tester.sut_manager = SUTManager(Tester.sut_list)
         Tester.pool_count = pool_count
-        Tester.CITYSCAPES_DATA_ROOT = cityscapes_data_root if cityscapes_data_root is not None else os.environ('CITYSCAPES_DATA_ROOT')
+        Tester.CITYSCAPES_DATA_ROOT = cityscapes_data_root if cityscapes_data_root is not None else os.getenv('CITYSCAPES_DATA_ROOT')
 
         cityscapes_runs_folder = Tester.__get_cityscapes_runs_folder()
         all_paths_exist = True
@@ -83,14 +100,18 @@ class Tester:
             Tester.cityscapes_results = Tester.run_on_cityscapes_benchmark()
         if score_threshold is not None:
             Tester.SCORE_THRESHOLD = score_threshold
-        good_files = [Tester.get_base_file(image)
-                      for image, score in Tester.cityscapes_results[Tester.BEST_SUT.name]["perImageScores"].items()
-                      if Tester.get_score(score) > Tester.SCORE_THRESHOLD]
-        print('Found %d good files' % len(good_files))
-        with open(Tester.working_directory + 'sut_gt_hist.txt', 'w') as f:
-            f.write(str([(Tester.get_base_file(image), Tester.get_score(score))
-                         for image, score in
-                         Tester.cityscapes_results[Tester.BEST_SUT.name]["perImageScores"].items()]))
+        if Tester.BEST_SUT is not None:
+            good_files = [Tester.get_base_file(image)
+                          for image, score in Tester.cityscapes_results[Tester.BEST_SUT.name]["perImageScores"].items()
+                          if Tester.get_score(score) > Tester.SCORE_THRESHOLD]
+            with open(Tester.working_directory + 'sut_gt_hist.txt', 'w') as f:
+                f.write(str([(Tester.get_base_file(image), Tester.get_score(score))
+                             for image, score in
+                             Tester.cityscapes_results[Tester.BEST_SUT.name]["perImageScores"].items()]))
+            print('Found %d good files' % len(good_files))
+        else:
+            good_files = None
+            print('Running without best SUT configured, will not be able to create new mutations. Use this initialization only when re-creating existing mutations.')
 
         Tester.cityscapes_mutator = CityscapesMutator(Tester.CITYSCAPES_DATA_ROOT, good_files)
         if load_mut_fols:
@@ -540,17 +561,5 @@ def plot_hist_as_line(data, label, bin_count=None, bins=None, log=False):
                                  histtype='bar', alpha=1, stacked=True, label=label, log=log)
     return n, calced_bins
 
-
 if __name__ == '__main__':
-    # TODO update these to point to the SUTs on your local machine
-    best_sut_to_test = NVIDIASemSeg('/home/adwiii/git/nvidia/semantic-segmentation')
-    suts_to_test = [
-        best_sut_to_test,
-        NVIDIASDCNet('/home/adwiii/git/nvidia/sdcnet/semantic-segmentation',
-                     '/home/adwiii/git/nvidia/large_assets/sdcnet_weights/cityscapes_best.pth'),
-        DecoupleSegNet('/home/adwiii/git/DecoupleSegNets'),
-        EfficientPS('/home/adwiii/git/EfficientPS'),
-        HRNet('/home/adwiii/git/HRNet-Semantic-Segmentation')
-    ]
-    Tester.initialize(best_sut_to_test, suts_to_test)
     Tester.run_fuzzer()

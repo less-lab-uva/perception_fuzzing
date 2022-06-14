@@ -10,9 +10,13 @@ This repository contains code and high level algorithm descriptions for the pape
 git submodule init
 git submodule update
 ```
-3. Set up the environment variables in [init.bash](init.bash).
-4. Download the [Cityscapes dataset](https://www.cityscapes-dataset.com/). See [this document](CityscapesSetup.md) for more information.
-5. Each time you start a new shell to run the tester, run the following to set up the environment variables.
+3. Set up the Python dependencies in [requirements.txt](requirements.txt)
+```
+pip3 install -r requirements.txt
+```
+4. Set up the environment variables in [init.bash](init.bash).
+5. Download the [Cityscapes dataset](https://www.cityscapes-dataset.com/). See [this document](CityscapesSetup.md) for more information.
+6. Each time you start a new shell to run the tester, run the following to set up the environment variables.
 ```
 . init.bash
 ```
@@ -20,16 +24,3 @@ git submodule update
 
 ## Recreating the Tests from the Study
 For information on how to recreate the tests from the study, please see [this README](study_data/README.md).
-
-
-## Repository Status
-The repository is currently undergoing edits to improve readability and reproducability. 
-This page will be updated as these additions are made. The starting point for the code is the 
-[tester.py](src/images/tester.py) script. There are currently several hard-coded file paths 
-that need to be manually changed to run the script locally - these will be made configurable soon.
-
-These updates will include:
-* High level algorithm descriptions in Markdown format linking to the algorithms described in [image_mutator.py](/src/images/image_mutator.py).
-* A guide for downloading and setting up the repository and its dependencies (e.g. Cityscapes) along with refactoring to add parameters for all file paths.
-* A top level script for reproducing the images used in the paper's study.
-* Additional in-line comments in the code to ease understanding and reproducability.

@@ -106,9 +106,20 @@ class MutationFolder:
 
     def read_mutations(self):
         with open(self.mutation_logs, 'r') as f:
-            temp = eval('[' + f.read() + ']')
-            for name, mutation_params in temp:
-                self.mutation_map[name] = Mutation.from_params(name, mutation_params, self)
+            self.mutations_from_file(f)
+
+    def mutations_from_file(self, file):
+        arr = eval('[' + file.read() + ']')
+        for name, mutation_params in arr:
+            self.mutation_map[name] = Mutation.from_params(name, mutation_params, self)
+
+    @classmethod
+    def mutation_folder_from_file(cls, base_folder, file):
+        mut_fol = cls(base_folder, False)
+        mut_fol.mutations_from_file(file)
+        os.makedirs(mut_fol.folder, exist_ok=True)
+        os.makedirs(mut_fol.mutations_gt_folder, exist_ok=True)
+        return mut_fol
 
     def add_all(self, mutations):
         for mutation in mutations:
@@ -439,10 +450,12 @@ class MutationType(Enum):
 
 class Mutation:
     def __init__(self, mutation_type: MutationType, orig_image: Image, edit_image: Image, mutation_gt: Image, name=None,
-                 params: dict = None):
-        self.name = str(uuid.uuid4())
+                 params: dict = None, unique_name=True):
+        self.name = str(uuid.uuid4()) if unique_name else ''
         if name is not None:
-            self.name += '_' + name
+            if unique_name:
+                self.name += '_'  # add spacer if we already added a uuid above
+            self.name += name
         self.orig_image = orig_image
         self.edit_image = edit_image
         self.mutation_gt = mutation_gt
@@ -452,7 +465,7 @@ class Mutation:
     @classmethod
     def from_params(cls, name, mutation_params: dict, mutation_folder: MutationFolder):
         mutation = cls(mutation_type=mutation_params['mutation_type'], orig_image=Image(),
-                       edit_image=Image(), mutation_gt=Image(), name=name, params=mutation_params)
+                       edit_image=Image(), mutation_gt=Image(), name=name, params=mutation_params, unique_name=False)
         mutation.update_file_names(mutation_folder)
         return mutation
 
